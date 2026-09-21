@@ -11,6 +11,7 @@ import type { Attachment, ChatMessage, Conversation, ProviderId, Settings, Think
 import { DEFAULT_PROVIDER, getProvider } from '../config/api';
 import { streamChatSmart } from '../lib/api';
 import { dbAll, dbDelete, dbGet, dbPut } from '../lib/db';
+import { uuid } from '../lib/uuid';
 
 /** 会话 store 对外暴露的接口 */
 export interface ChatStore {
@@ -212,7 +213,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
   function newConversation(initialModel?: ProviderId): string {
     const now = Date.now();
     const conv: Conversation = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       title: '新对话',
       messages: [],
       model: initialModel ?? settings.model,
@@ -324,7 +325,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     // 联网搜索：允许模型自主调用搜索工具（结果作为 tool 消息，不进入用户气泡）
     const now = Date.now();
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       role: 'user',
       content: trimmed,
       createdAt: now,
@@ -353,7 +354,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
   ): Promise<void> {
     const now = Date.now();
     const placeholder: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       role: 'assistant',
       content: '',
       createdAt: now,

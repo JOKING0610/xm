@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react';
 import type { Attachment, ThinkingLevel } from '../types';
+import { uuid } from '../lib/uuid';
 import {
   useChatStore,
   ERROR_BUSY,
@@ -236,7 +237,7 @@ async function readFilesAsAttachments(
       try {
         const { dataUrl, mime, size, originalSize } = await compressImage(f);
         result.push({
-          id: crypto.randomUUID(),
+          id: uuid(),
           kind,
           name: f.name,
           mime,
@@ -250,7 +251,7 @@ async function readFilesAsAttachments(
     } else {
       const dataUrl = await fileToDataUrl(f);
       result.push({
-        id: crypto.randomUUID(),
+        id: uuid(),
         kind,
         name: f.name,
         mime: f.type || 'application/octet-stream',

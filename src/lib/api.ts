@@ -3,6 +3,7 @@
 import type { Attachment, ChatRole, ProviderMeta, StreamHandlers, ThinkingLevel } from '../types';
 import { getBackupProvider, getProvider } from '../config/api';
 import { searchWeb, formatSearchResult } from './search';
+import { uuid } from './uuid';
 
 /**
  * 图片识别的专用模型（同 yunzhiapi 网关）。
@@ -52,7 +53,7 @@ export const SYSTEM_PROMPT = `你是「星梦」，由 JOKING 开发的全能 AI
 
 /** 生成新的幂等键，保证每次请求唯一 */
 export function newIdempotencyKey(): string {
-  return crypto.randomUUID();
+  return uuid();
 }
 
 /**
@@ -180,7 +181,7 @@ async function describeImageViaQwen(
         },
       ],
       stream: true,
-      user: `xm-${crypto.randomUUID().slice(0, 8)}`,
+      user: `xm-${uuid().slice(0, 8)}`,
     }),
     signal,
   });
@@ -355,7 +356,7 @@ export async function streamChat(opts: {
     stream: true,
     ...buildThinkingParam(provider.id, opts.thinkingLevel),
     ...(withTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
-    ...(withNonce ? { user: `xm-${crypto.randomUUID().slice(0, 8)}` } : {}),
+    ...(withNonce ? { user: `xm-${uuid().slice(0, 8)}` } : {}),
   });
 
   // 首次请求
@@ -422,7 +423,7 @@ export async function streamChat(opts: {
         stream: true,
         ...buildThinkingParam(provider.id, opts.thinkingLevel),
         ...(allowTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
-        ...(withNonce ? { user: `xm-${crypto.randomUUID().slice(0, 8)}` } : {}),
+        ...(withNonce ? { user: `xm-${uuid().slice(0, 8)}` } : {}),
       });
       try {
         res = await postChat(

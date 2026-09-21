@@ -70,7 +70,6 @@ export default function ChatView({
                 className="size-14 rounded-2xl object-cover shadow-md"
               />
               <h2 className="text-2xl font-semibold text-slate-800">星梦</h2>
-              <p className="text-sm text-slate-400">支持流式代码块渲染与图片理解</p>
             </div>
           ) : (
             conv.messages.map((m) => (
