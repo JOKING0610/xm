@@ -1,0 +1,44 @@
+# Tasks
+
+- [x] Task 1: 项目脚手架与基础配置
+  - [x] 用 Vite 初始化 React+TS 项目（react、react-dom、typescript、vite）
+  - [x] 接入 Tailwind CSS（@tailwindcss/vite）
+  - [x] 安装 `@fortawesome/fontawesome-free`、`shiki` 依赖
+  - [x] `vite.config.ts` 设置 `base: './'`；`index.html` 标题/图标
+  - [x] 编写 `.gitignore`（排除 `node_modules`、`dist`、`新建文本文档.txt`、`.env*`）；`git init`
+- [x] Task 2: 对话页面 UI 骨架（白色+蓝色圆角风格）
+  - [x] 布局：左侧会话侧边栏（新会话按钮、会话列表、GitHub 链接）+ 右侧对话区（消息流 + 输入区）
+  - [x] FA 图标集成（send、plus、copy、check、chevron-up/down、github 等）
+  - [x] 输入框（多行自适应）+ 发送按钮，回车发送 / Shift+Enter 换行
+- [x] Task 3: API 层（内置双提供方 + SSE 流式 + 容错）
+  - [x] `src/config/api.ts`：内置两个提供方与密钥（读取自 新建文本文档.txt 内容）
+  - [x] `src/lib/api.ts`：OpenAI 兼容 `fetch` SSE 解析（`postChat`、`newIdempotencyKey`、每次 POST 新 key）
+  - [x] 409 自动重试（`user` 字段附加随机 nonce 变更 body）、失败回退到备用模型（`streamChatSmart`）
+- [x] Task 4: 会话状态与 IndexedDB 持久化
+  - [x] `src/lib/db.ts`：promise 封装 IndexedDB（库名 `xingmeng`，`conversations` + `settings` store，提供 dbGet/dbPut/dbClear/dbAll/dbDelete）
+  - [x] 会话创建/切换/删除、当前模型选择，挂载时从 IndexedDB 恢复（防初始化竞态）
+- [x] Task 5: 增量 Markdown 块解析器
+  - [x] `src/lib/parser.ts`：块级 state machine（paragraph/code/list/heading/quote/table），输出 `Block[]`（含 `closed` 标记、代码围栏识别、语言提取）
+  - [x] 流式更新只处理新增内容增量追加，闭合块冻结
+- [x] Task 6: Shiki 高亮层
+  - [x] `src/lib/highlighter.ts`：`createHighlighter` 单例（JS regex engine，无 WASM），预置常用语言 + `github-dark` 主题，启动预热 warmup
+  - [x] LRU 缓存（key=`lang|code`，上限 128）+ `useCodeHighlight` hook（流式中 100ms 节流更新；闭合后一次性精确高亮）
+- [x] Task 7: Markdown 与 CodeBlock 渲染组件
+  - [x] `Markdown.tsx`：块列表渲染，闭合块 `React.memo`+自定义比较器冻结；行内解析（**加粗**、`代码`、[链接](safeUrl)、表格）
+  - [x] `CodeBlock.tsx`：深色容器（slate-900 系）、语言标签、复制/折叠（FA 图标 + 过渡动画）、`role="region"`+`aria-label`、`tabIndex`
+  - [x] 未注册语言降级纯文本；token 数组直接渲染（无 innerHTML 注入）
+- [x] Task 8: 构建验证
+  - [x] `npm run build` 通过（含 typecheck）
+  - [x] `npm run preview` 本地冒烟：发送消息、流式代码块渲染、复制/折叠交互、刷新后会话恢复（Playwright 验证：0 控制台错误、流完成、代码块渲染）
+- [x] Task 9: GitHub Pages 部署配置
+  - [x] `.github/workflows/deploy.yml`：push 到 main 时 `npm ci && npm run build`，发布 `dist` 到 gh-pages 分支（peaceiris/actions-gh-pages）
+  - [x] README 简短部署说明（开启 Pages、推送步骤）
+
+# Task Dependencies
+- [Task 2] 依赖 [Task 1]
+- [Task 4] 依赖 [Task 1]
+- [Task 3] 依赖 [Task 1]
+- [Task 6] 依赖 [Task 1]
+- [Task 5] 依赖 [Task 1]；[Task 7] 依赖 [Task 5] 与 [Task 6]
+- [Task 8] 依赖全部前置任务（Task 3/4/5/6 相互独立，已并行执行）
+- [Task 9] 依赖 [Task 8]
