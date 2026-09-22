@@ -12,6 +12,9 @@ export default function ChatView({
 }) {
   const store = useChatStore();
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  // 消息滚动容器 + "是否接近底部"跟踪：用户上滑浏览历史时不强制被拉回底部
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const nearBottomRef = useRef(true);
   const conv = store.activeConversation;
   // 防御性取值：历史/异常数据可能缺 messages 字段
   const msgs = conv?.messages ?? [];
@@ -19,11 +22,20 @@ export default function ChatView({
   // 是否最后一条为正在流式输出的助手消息
   const isStreamingLast = store.isStreaming && lastMsg?.role === 'assistant';
 
-  // 消息变化时自动滚动到底部
+  function handleScroll(): void {
+    const el = scrollRef.current;
+    if (!el) return;
+    // 距底部小于 80px 视为"在底部"
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
+  // 消息变化时：仅当用户本就贴近底部时才跟随滚动；上滑浏览历史时保持位置
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: store.isStreaming ? 'auto' : 'smooth',
-    });
+    if (nearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({
+        behavior: store.isStreaming ? 'auto' : 'smooth',
+      });
+    }
   }, [conv?.messages, store.isStreaming]);
 
   return (
@@ -46,7 +58,11 @@ export default function ChatView({
       </header>
 
       {/* 消息区 */}
-      <div className="flex-1 overflow-y-auto px-3 py-6 md:px-4">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-3 py-6 md:px-4"
+      >
         <div className="mx-auto w-full max-w-3xl space-y-6">
           {store.streamError && (
             <div className="flex items-start gap-2 rounded-2xl border border-red-100 bg-red-50/80 px-4 py-3 text-[13px] text-red-700">

@@ -491,6 +491,9 @@ export async function streamChat(opts: {
   try {
     // 模型决定联网搜索：执行搜索并回传 tool 结果，进行第二轮生成
     if (toolCalls.length > 0) {
+      // 第一轮思考过程（如"是否搜索、怎么搜"）先补发给 UI，让思考过程不因工具调用而丢失
+      if (firstRoundReasoning) opts.onReasoning?.(firstRoundReasoning);
+
       // 并行执行所有搜索；失败时该工具消息写提示，让模型自行应对
       const toolResults = await Promise.all(
         toolCalls.map(async (tc) => {

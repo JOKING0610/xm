@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import type { Attachment, ChatMessage } from '../types';
 import Markdown from './Markdown';
 import ImageLightbox from './ImageLightbox';
@@ -68,6 +68,12 @@ function AttachmentsGrid({ items }: { items: Attachment[] }) {
 }
 
 function Message({ message, isStreaming, onRetry }: MessageProps) {
+  // 思考过程展开态：流式（含思考内容）时自动展开，便于看到逐字的思考过程
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+  useEffect(() => {
+    if (isStreaming && message.reasoning) setReasoningOpen(true);
+  }, [isStreaming, message.reasoning]);
+
   // 用户消息：右侧蓝色气泡，纯文本 + 附件预览
   if (message.role === 'user') {
     const hasAttachments = !!message.attachments && message.attachments.length > 0;
@@ -103,7 +109,13 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
       <div className="max-w-[85%] flex-1 rounded-2xl rounded-bl-md border border-blue-100/70 bg-white px-4 py-3 shadow-sm">
         {hasReasoning && (
           <div className="mb-2 border-b border-blue-50 pb-2">
-            <details className="group">
+            <details
+              className="group"
+              open={reasoningOpen}
+              onToggle={(e) =>
+                setReasoningOpen((e.target as HTMLDetailsElement).open)
+              }
+            >
               <summary className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-blue-600">
                 <i className="fa-solid fa-brain text-blue-400" />
                 思考过程
@@ -112,6 +124,10 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
               </summary>
               <div className="mt-1.5 whitespace-pre-wrap break-words rounded-lg bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-500">
                 {message.reasoning}
+                {/* 思考过程流式光标 */}
+                {isStreaming && message.reasoning && (
+                  <span className="streaming-caret" aria-hidden="true" />
+                )}
               </div>
             </details>
           </div>
