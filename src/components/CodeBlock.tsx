@@ -130,7 +130,7 @@ function CodeBlock({ code, lang, isStreaming }: CodeBlockProps) {
   const tokenTotal = renderTokens ? (tokens as StreamTokens).length : 0;
 
   return (
-    <div className="rounded-xl border border-slate-700/50 bg-[var(--cb-bg)] shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-slate-700/50 bg-[var(--cb-bg)] shadow-sm">
       {/* 头部工具栏 */}
       <div className="flex items-center justify-between border-b border-slate-700/40 bg-[var(--cb-header-bg)] px-3 py-1.5">
         <span className="flex items-center gap-1.5 rounded-md bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-blue-300">
@@ -179,13 +179,13 @@ function CodeBlock({ code, lang, isStreaming }: CodeBlockProps) {
         }`}
       >
         <div className="overflow-hidden min-h-0">
-          <div className="bg-[var(--cb-bg)] text-[var(--cb-text)]">
+          <div className="bg-[var(--cb-bg)] rounded-b-xl text-[var(--cb-text)]">
             {renderTokens ? (
               <div
                 tabIndex={0}
                 role="region"
                 aria-label={`${lang || '代码'} 代码块`}
-                className="overflow-x-auto py-3 pl-2 pr-4 text-[13px] leading-6 font-[var(--cb-font-code)]"
+                className="code-scroll overflow-x-auto py-3 pl-2 pr-4 text-[13px] leading-6 font-[var(--cb-font-code)]"
               >
                 {(tokens as StreamTokens).map((tl, i) => renderTokenLine(tl, i, tokenTotal))}
               </div>
@@ -194,7 +194,7 @@ function CodeBlock({ code, lang, isStreaming }: CodeBlockProps) {
                 tabIndex={0}
                 role="region"
                 aria-label={`${lang || '代码'} 代码块`}
-                className="overflow-x-auto py-3 pl-2 pr-4 font-[var(--cb-font-code)] text-[var(--cb-text)] text-[13px] leading-6 whitespace-pre"
+                className="code-scroll overflow-x-auto py-3 pl-2 pr-4 text-[13px] leading-6 whitespace-pre font-[var(--cb-font-code)] text-[var(--cb-text)]"
               >
                 {(plainLines ?? [code]).map((ln, i) => renderPlainLine(ln, i, plainTotal))}
               </div>

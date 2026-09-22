@@ -75,3 +75,19 @@ body {
 .code-block pre code {
   font-family: var(--cb-font-code) !important;
 }
+
+/* 深色代码块滚动条：细窄、暗色、圆角 */
+.code-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.code-scroll::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+.code-scroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+.code-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
