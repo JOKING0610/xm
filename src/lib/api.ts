@@ -350,11 +350,12 @@ export async function streamChat(opts: {
     withNonce: boolean,
     extraMessages?: Array<Record<string, unknown>>,
     withTools?: boolean,
+    noThinking = false,
   ): Record<string, unknown> => ({
     model: provider.model,
     messages: extraMessages ?? apiMessages,
     stream: true,
-    ...buildThinkingParam(provider.id, opts.thinkingLevel),
+    ...(noThinking ? {} : buildThinkingParam(provider.id, opts.thinkingLevel)),
     ...(withTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
     ...(withNonce ? { user: `xm-${uuid().slice(0, 8)}` } : {}),
   });
@@ -385,75 +386,101 @@ export async function streamChat(opts: {
       throw new Error(`重试仍失败 (${res.status})${bodyText ? `: ${bodyText}` : ''}`);
     }
   } else if (!res.ok) {
-    // 其余非 2xx（非 409）：读 body 文本
+    // 其余非 2xx（非 409）
     let bodyText = await readErrorText(res);
-    // 400 + 含图片 + 错误信息像是"不支持图片/视觉"
-    // → 自动剥离图片（仅保留文本与文件名提示）再试一次，规避"模型不支持 Vision"
-    const hasImages = messages.some((m) =>
-      (m.attachments ?? []).some((a) => a.kind === 'image'),
-    );
-    // 触发剥离的线索：错误显式提到 image/vision 等关键词，
-    // 或网关通用参数错误（YZ5005 / "无效的请求参数"——实测不支持视觉的模型对图片包就是这类报错）
-    const looksLikeImageError =
-      /image|vision|multimodal|content[-_ ]type|unsupported[-_ ]content|YZ5005|无效的请求参数/i.test(
-        bodyText,
-      );
-    if (res.status === 400 && hasImages && looksLikeImageError) {
-      // 构造剥离图片后的请求体（仅去掉 kind==='image' 的附件，file 保留）
-      // apiMessages[0] 是 system 提示词，索引需偏移一位对应原 messages
-      const strippedMessages = apiMessages.map((m, i) => {
-        if (i === 0) return m; // system 提示词原样保留
-        const orig = messages[i - 1];
-        if (!orig) return m;
-        const images = (orig.attachments ?? []).filter((a) => a.kind === 'image');
-        if (images.length === 0) return m;
-        // 重新构造 content：仅文本（移除 image_url 段），保留文件附件提示
-        const files = (orig.attachments ?? []).filter((a) => a.kind === 'file');
-        let header = orig.content;
-        if (files.length > 0) {
-          header = `${orig.content}\n\n[附件文件]\n${files
-            .map((f) => `- ${f.name} (${f.mime}, ${formatSize(f.size)})`)
-            .join('\n')}`;
-        }
-        return { role: m.role, content: header || '' };
-      });
-      const buildStrippedBody = (withNonce: boolean): Record<string, unknown> => ({
-        model: provider.model,
-        messages: strippedMessages,
-        stream: true,
-        ...buildThinkingParam(provider.id, opts.thinkingLevel),
-        ...(allowTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
-        ...(withNonce ? { user: `xm-${uuid().slice(0, 8)}` } : {}),
-      });
-      try {
-        res = await postChat(
-          url,
-          buildStrippedBody(true),
-          provider.apiKey,
-          newIdempotencyKey(),
-        );
-      } catch (err) {
-        if (signal?.aborted) return;
-        const e = err instanceof Error ? err : new Error(String(err));
-        opts.onError?.(e);
-        return;
+
+    // 容错：启用了搜索工具时，可能是 thinking 参数与 tools 组合不被网关接受 →
+    // 去掉 thinking、保留 tools 再试一次，保住联网搜索能力
+    if (allowTools) {
+      const retryRes = await postChat(
+        url,
+        buildBody(true, undefined, true, true),
+        provider.apiKey,
+        newIdempotencyKey(),
+      ).catch(() => null);
+      if (retryRes?.ok) {
+        res = retryRes;
+        bodyText = '';
       }
-      if (res.ok) {
-        // 提示用户：图片被自动剥离（仅这一次流）
-        opts.onWarning?.(
-          `当前模型不支持图片，已自动去除图片后重试。原始错误：${bodyText || res.statusText}`,
+    }
+    // 409 兜底：换幂等键 + 新 nonce 重试一次
+    if (!res.ok && res.status === 409) {
+      res = await postChat(
+        url,
+        buildBody(true, undefined, allowTools),
+        provider.apiKey,
+        newIdempotencyKey(),
+      ).catch(() => res);
+    }
+
+    if (!res.ok) {
+      if (bodyText === '') bodyText = await readErrorText(res);
+      // 400 + 含图片 + 错误信息像是"不支持图片/视觉"
+      // → 自动剥离图片（仅保留文本与文件名提示）再试一次，规避"模型不支持 Vision"
+      const hasImages = messages.some((m) =>
+        (m.attachments ?? []).some((a) => a.kind === 'image'),
+      );
+      // 触发剥离的线索：错误显式提到 image/vision 等关键词，
+      // 或网关通用参数错误（YZ5005 / "无效的请求参数"——实测不支持视觉的模型对图片包就是这类报错）
+      const looksLikeImageError =
+        /image|vision|multimodal|content[-_ ]type|unsupported[-_ ]content|YZ5005|无效的请求参数/i.test(
+          bodyText,
         );
-      } else {
-        // 重试仍非 2xx：把原始错误透出
-        bodyText = await readErrorText(res);
+      if (res.status === 400 && hasImages && looksLikeImageError) {
+        // 构造剥离图片后的请求体（仅去掉 kind==='image' 的附件，file 保留）
+        // apiMessages[0] 是 system 提示词，索引需偏移一位对应原 messages
+        const strippedMessages = apiMessages.map((m, i) => {
+          if (i === 0) return m; // system 提示词原样保留
+          const orig = messages[i - 1];
+          if (!orig) return m;
+          const images = (orig.attachments ?? []).filter((a) => a.kind === 'image');
+          if (images.length === 0) return m;
+          // 重新构造 content：仅文本（移除 image_url 段），保留文件附件提示
+          const files = (orig.attachments ?? []).filter((a) => a.kind === 'file');
+          let header = orig.content;
+          if (files.length > 0) {
+            header = `${orig.content}\n\n[附件文件]\n${files
+              .map((f) => `- ${f.name} (${f.mime}, ${formatSize(f.size)})`)
+              .join('\n')}`;
+          }
+          return { role: m.role, content: header || '' };
+        });
+        const buildStrippedBody = (withNonce: boolean): Record<string, unknown> => ({
+          model: provider.model,
+          messages: strippedMessages,
+          stream: true,
+          ...buildThinkingParam(provider.id, opts.thinkingLevel),
+          ...(allowTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
+          ...(withNonce ? { user: `xm-${uuid().slice(0, 8)}` } : {}),
+        });
+        try {
+          res = await postChat(
+            url,
+            buildStrippedBody(true),
+            provider.apiKey,
+            newIdempotencyKey(),
+          );
+        } catch (err) {
+          if (signal?.aborted) return;
+          const e = err instanceof Error ? err : new Error(String(err));
+          opts.onError?.(e);
+          return;
+        }
+        if (res.ok) {
+          // 提示用户：图片被自动剥离（仅这一次流）
+          opts.onWarning?.(
+            `当前模型不支持图片，已自动去除图片后重试。原始错误：${bodyText || res.statusText}`,
+          );
+          bodyText = '';
+        } else {
+          bodyText = await readErrorText(res);
+        }
+      }
+      if (!res.ok) {
         const e = new Error(`请求失败 (${res.status})${bodyText ? `: ${bodyText}` : ''}`);
         opts.onError?.(e);
         return;
       }
-    } else {
-      const e = new Error(`请求失败 (${res.status})${bodyText ? `: ${bodyText}` : ''}`);
-      opts.onError?.(e);
-      return;
     }
   }
 
@@ -514,10 +541,11 @@ export async function streamChat(opts: {
         }),
       );
 
-      // 第一轮助手消息（需保留 tool_calls 以符合 OpenAI 历史格式）
+      // 第一轮助手消息（需保留 tool_calls 以符合 OpenAI 历史格式；
+      // 无正文时 content 用 null 而非空串，规避严格网关拒绝）
       const assistantMsg: Record<string, unknown> = {
         role: 'assistant',
-        content: firstRoundContent,
+        content: firstRoundContent || null,
         tool_calls: toolCalls.map((tc) => ({
           id: tc.id,
           type: 'function',
