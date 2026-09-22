@@ -10,13 +10,13 @@ import {
 } from '../hooks/useChatStore';
 import ImageLightbox from './ImageLightbox';
 
-/** 思考强度选项 */
+/** 思考强度选项（菜单内仅显示档位名，前缀"思考："由按钮单独拼接） */
 const THINKING_OPTIONS: Array<{ value: ThinkingLevel; label: string }> = [
-  { value: 'default', label: '思考：默认' },
-  { value: 'off', label: '思考：关闭' },
-  { value: 'low', label: '思考：低' },
-  { value: 'medium', label: '思考：中' },
-  { value: 'high', label: '思考：高' },
+  { value: 'default', label: '默认' },
+  { value: 'off', label: '关闭' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
 ];
 
 /** 思考强度自定义下拉菜单（胶囊按钮 + 向上展开面板） */
@@ -45,7 +45,7 @@ function ThinkingMenu({
         }`}
       >
         <i className="fa-solid fa-brain text-xs" />
-        {current.label}
+        思考：{current.label}
         <i
           className={`fa-solid fa-chevron-down text-[10px] transition-transform ${
             open ? 'rotate-180' : ''
