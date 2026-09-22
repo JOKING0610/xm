@@ -143,7 +143,7 @@ function ConversationItem({
               startEdit();
             }}
             title="重命名"
-            className="fa-solid fa-pen cursor-pointer text-slate-400 opacity-0 transition-opacity hover:text-blue-600 group-hover:opacity-100"
+            className="fa-solid fa-pen cursor-pointer text-slate-300 transition-colors hover:text-blue-600"
           />
           <i
             onClick={(e) => {
@@ -151,7 +151,7 @@ function ConversationItem({
               onDelete();
             }}
             title="删除"
-            className="fa-solid fa-trash cursor-pointer text-slate-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+            className="fa-solid fa-trash cursor-pointer text-slate-300 transition-colors hover:text-red-500"
           />
         </>
       )}

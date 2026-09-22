@@ -23,6 +23,28 @@ export interface CodeBlockProps {
 // 已知可高亮的语言；其它（含 undefined / text / 中文标签）走纯文本回退
 const HIGHLIGHTABLE = new Set(['python', 'py', 'javascript', 'js', 'typescript', 'ts', 'tsx', 'jsx', 'bash', 'shell', 'sh', 'json', 'html', 'css', 'sql', 'markdown', 'md']);
 
+// 语言 → 文件扩展名（用于下载）
+const LANG_EXT: Record<string, string> = {
+  python: 'py', py: 'py',
+  javascript: 'js', js: 'js',
+  typescript: 'ts', ts: 'ts', tsx: 'tsx', jsx: 'jsx',
+  bash: 'sh', shell: 'sh', sh: 'sh',
+  json: 'json', html: 'html', css: 'css', sql: 'sql',
+  markdown: 'md', md: 'md',
+};
+
+/** 当前本地时间：YYYYMMDDHHmmss（仅数字） */
+function timestampCode(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/** 语言 → 扩展名，未知语言回退 txt */
+function extFor(lang: string | undefined): string {
+  return LANG_EXT[(lang ?? '').toLowerCase().trim()] ?? 'txt';
+}
+
 function CodeBlock({ code, lang, isStreaming }: CodeBlockProps) {
   const tokens = useCodeHighlight(code, lang, isStreaming);
   const [folded, setFolded] = useState(false);
@@ -43,6 +65,19 @@ function CodeBlock({ code, lang, isStreaming }: CodeBlockProps) {
     } catch {
       // 剪贴板写入失败静默处理
     }
+  }
+
+  /** 下载代码为文件：xingmeng_年月日时分秒(仅数字).扩展名 */
+  function handleDownload(): void {
+    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `xingmeng_${timestampCode()}.${extFor(lang)}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   function renderTokenLine(tokensLine: StreamTokens[number], lineIndex: number, totalLines: number) {
@@ -106,6 +141,15 @@ function CodeBlock({ code, lang, isStreaming }: CodeBlockProps) {
           {lineCount > 1 && (
             <span className="px-1 text-[10px] text-slate-500 tabular-nums">{lineCount} 行</span>
           )}
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-slate-400 transition-colors hover:bg-slate-700/50 hover:text-slate-200"
+            aria-label="下载代码文件"
+            title="下载为文件"
+          >
+            <i className="fa-solid fa-download" />
+          </button>
           <button
             type="button"
             onClick={() => void handleCopy()}
