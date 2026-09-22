@@ -86,6 +86,13 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
   // 助手消息：左侧头像 + 右侧 Markdown 气泡
   const empty = isStreaming && message.content === '';
   const hasReasoning = !!message.reasoning;
+  // 流式输出追加闪烁光标，让"正在生成"更明显；
+  // 若内容以代码围栏结尾（CodeBlock 自身已带光标），跳过外部光标避免双光标
+  const trimmedEnd = message.content.trimEnd();
+  const lastLine = trimmedEnd.slice(trimmedEnd.lastIndexOf('\n') + 1);
+  const endsWithCodeBlock =
+    /^\s*(```+|~~~+)/.test(lastLine) || /(```+|~~~+)\s*$/.test(trimmedEnd);
+  const showStreamCaret = isStreaming && !empty && !endsWithCodeBlock;
   return (
     <div className="flex justify-start gap-3">
       <img
@@ -121,7 +128,13 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
             ))}
           </div>
         ) : (
-          <Markdown text={message.content} isStreaming={isStreaming} />
+          <>
+            <Markdown text={message.content} isStreaming={isStreaming} />
+            {/* 流式光标：闪烁 ▍ 提示正在生成 */}
+            {showStreamCaret && (
+              <span className="streaming-caret" aria-hidden="true" />
+            )}
+          </>
         )}
         {/* 失败回复：提供重试，重新发送同一用户消息 */}
         {!isStreaming && message.failed && onRetry && (
