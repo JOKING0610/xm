@@ -27,6 +27,8 @@ export interface ChatStore {
   unreadIds: ReadonlySet<string>;
   streamError: string | null;
   newConversation: () => string;
+  /** 新建对话行为：已存在空会话则切换过去，否则新建（避免累积多个空白会话） */
+  openOrCreateEmpty: () => string;
   selectConversation: (id: string) => void;
   deleteConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
@@ -226,6 +228,19 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     // 空白会话不写库；safePersist 内部已做此判断
     safePersist(conv);
     return conv.id;
+  }
+
+  /**
+   * 新建对话按钮行为：已存在空会话则直接切换过去（含清除未读/错误），
+   * 否则新建一个。避免反复点击"新建对话"累积出大量空白会话。
+   */
+  function openOrCreateEmpty(): string {
+    const empty = conversations.find((c) => c.messages.length === 0);
+    if (empty) {
+      selectConversation(empty.id);
+      return empty.id;
+    }
+    return newConversation();
   }
 
   /** 标记某会话"回复已完成但未查看"（侧边栏绿点） */
@@ -513,6 +528,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     unreadIds,
     streamError,
     newConversation,
+    openOrCreateEmpty,
     selectConversation,
     deleteConversation,
     renameConversation,

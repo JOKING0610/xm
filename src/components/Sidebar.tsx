@@ -166,12 +166,6 @@ export default function Sidebar({ open }: { open: boolean }) {
   // 按更新时间倒序（最新会话在最上方）
   const sorted = [...store.conversations].sort((a, b) => b.updatedAt - a.updatedAt);
 
-  // 当前活跃会话是否为空（无任何消息）：是则禁用"新建对话"按钮
-  // （注意：没有活跃会话时不应禁用，否则首次进入应用无法开始）
-  const activeIsEmpty =
-    !!store.activeConversation && store.activeConversation.messages.length === 0;
-  const canCreateNew = !activeIsEmpty;
-
   return (
     <aside
       className={[
@@ -193,17 +187,12 @@ export default function Sidebar({ open }: { open: boolean }) {
           <span className="font-semibold text-slate-800">星梦</span>
         </div>
 
-        {/* 新建对话：当前会话为空时禁用，避免创建多个空白对话 */}
+        {/* 新建对话：始终可点；已存在空会话时点击切换到该会话，否则新建 */}
         <div className="px-3">
           <button
-            onClick={() => store.newConversation()}
-            disabled={!canCreateNew}
-            title={canCreateNew ? '新建对话' : '当前会话为空，无需新建'}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors ${
-              canCreateNew
-                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                : 'cursor-not-allowed bg-slate-100 text-slate-400'
-            }`}
+            onClick={() => store.openOrCreateEmpty()}
+            title="新建对话"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
           >
             <i className="fa-solid fa-plus" />
             新建对话

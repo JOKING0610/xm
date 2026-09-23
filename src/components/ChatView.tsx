@@ -78,7 +78,8 @@ export default function ChatView({
               </button>
             </div>
           )}
-          {!conv ? (
+          {!conv || conv.messages.length === 0 ? (
+            // 无活跃会话或会话为空（尚未发送消息）：显示背景头像
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <img
                 src="./avatar.jpg"

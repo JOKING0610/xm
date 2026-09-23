@@ -15,14 +15,14 @@ const parClasses: Record<BlockType, string> = {
   hr: 'my-3',
 };
 
-// 标题随 level 缩放的圆角样式
+// 标题随 level 缩放的圆角样式（尺寸 + 上下留白，增强层级感）
 const headingSizes: Record<number, string> = {
-  1: 'text-2xl',
-  2: 'text-xl',
-  3: 'text-lg',
-  4: 'text-base',
-  5: 'text-[15px]',
-  6: 'text-sm',
+  1: 'text-2xl mt-4 mb-2',
+  2: 'text-xl mt-4 mb-2',
+  3: 'text-lg mt-3 mb-1.5',
+  4: 'text-base mt-3 mb-1',
+  5: 'text-[15px] mt-2 mb-1',
+  6: 'text-sm mt-2 mb-1',
 };
 
 /** 判断是否为表格分隔行（如 |---|:---| 全连字符/冒号行） */
@@ -94,7 +94,9 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <Tag
                 key={block.id}
-                className={`font-bold text-slate-800 ${headingSizes[level] ?? 'text-lg'}`}
+                className={`font-bold tracking-tight text-slate-800 ${
+                  headingSizes[level] ?? 'text-lg'
+                }`}
               >
                 <Inline text={block.content} />
                 {isLast && showCaret && <span className="streaming-caret" />}
@@ -105,7 +107,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
           case 'paragraph':
             // 去掉 content 末尾的换行
             return (
-              <p key={block.id} className={parClasses.paragraph}>
+              <p key={block.id} className={`${parClasses.paragraph} leading-relaxed text-slate-600`}>
                 <Inline text={block.content.replace(/\n$/, '')} />
                 {isLast && showCaret && <span className="streaming-caret" />}
               </p>
@@ -116,7 +118,10 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
               .split('\n')
               .map((line) => line.replace(/^\s*(?:[-*+]|\d+\.)\s+/, ''));
             return (
-              <ul key={block.id} className={`${parClasses.list} list-disc pl-6 text-slate-600`}>
+              <ul
+                key={block.id}
+                className={`${parClasses.list} list-disc space-y-1.5 pl-6 leading-relaxed text-slate-600 marker:text-blue-400`}
+              >
                 {items.map((item, i) => (
                   <li key={i}>
                     {isLast && i === items.length - 1 && showCaret ? (
@@ -138,7 +143,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <blockquote
                 key={block.id}
-                className={`${parClasses.quote} border-l-4 border-blue-500 bg-blue-50/60 rounded-r-lg px-4 py-2 text-slate-600`}
+                className={`${parClasses.quote} rounded-r-lg border-l-4 border-blue-400 bg-blue-50/60 px-4 py-2 leading-relaxed text-slate-600`}
               >
                 {lines.map((line, i) => (
                   <div key={i}>
@@ -163,36 +168,44 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
               .slice(1)
               .filter((row) => !isSepRow(row) && !row.every((c) => c === ''));
             return (
-              <table
+              <div
                 key={block.id}
-                className={`${parClasses.table} rounded-lg border border-blue-100 overflow-hidden text-sm w-full`}
+                className="my-2 overflow-hidden rounded-xl border border-blue-100 shadow-sm"
               >
-                <thead>
-                  <tr className="bg-blue-50">
-                    {header.map((cell, i) => (
-                      <th key={i} className="px-3 py-1.5 text-left font-semibold text-slate-700">
-                        {cell}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {body.map((row, ri) => (
-                    <tr key={ri} className="border-t border-blue-100">
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="px-3 py-1.5 text-slate-600">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-blue-50">
+                      {header.map((cell, i) => (
+                        <th
+                          key={i}
+                          className="px-3 py-2 text-left font-semibold text-slate-700"
+                        >
                           {cell}
-                        </td>
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {body.map((row, ri) => (
+                      <tr
+                        key={ri}
+                        className="border-t border-blue-100 odd:bg-white even:bg-slate-50/60 hover:bg-blue-50/50"
+                      >
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-3 py-1.5 text-slate-600">
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             );
           }
 
           case 'hr':
-            return <hr key={block.id} className={parClasses.hr} />;
+            return <hr key={block.id} className="my-3 border-t-2 border-blue-100/70" />;
 
           default:
             return null;

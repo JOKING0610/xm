@@ -104,7 +104,7 @@ export default function Inline({ text, className }: InlineProps) {
         );
       }
       case 'bold':
-        return <strong key={key}>{token.value}</strong>;
+        return <strong key={key} className="font-semibold text-slate-800">{token.value}</strong>;
       case 'italic':
         return <em key={key}>{token.value}</em>;
       case 'text': {
