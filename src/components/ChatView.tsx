@@ -1,7 +1,48 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useChatStore } from '../hooks/useChatStore';
 import Message from './Message';
 import InputBar from './InputBar';
+
+/**
+ * 空会话欢迎语的打字机效果：
+ * 逐字显示 → 全部显示后等待 5s → 逐字收回 → 收回后等待 3s → 重新打字，循环往复。
+ */
+function TypewriterQuote({ text }: { text: string }) {
+  const [count, setCount] = useState(0);
+  const [phase, setPhase] = useState<'typing' | 'full' | 'erasing' | 'empty'>('typing');
+
+  // 打字/收回的逐字推进，以及两个停留阶段的计时
+  useEffect(() => {
+    if (phase === 'typing' || phase === 'erasing') {
+      const step = phase === 'typing' ? 1 : -1;
+      const delay = phase === 'typing' ? 180 : 110;
+      const timer = window.setInterval(() => setCount((c) => c + step), delay);
+      return () => window.clearInterval(timer);
+    }
+    if (phase === 'full') {
+      const timer = window.setTimeout(() => setPhase('erasing'), 5000);
+      return () => window.clearTimeout(timer);
+    }
+    if (phase === 'empty') {
+      const timer = window.setTimeout(() => setPhase('typing'), 3000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [phase]);
+
+  // 到达边界时切换阶段
+  useEffect(() => {
+    if (phase === 'typing' && count >= text.length) setPhase('full');
+    if (phase === 'erasing' && count <= 0) setPhase('empty');
+  }, [count, phase, text.length]);
+
+  return (
+    <p className="flex min-h-[1.5rem] items-center text-sm text-slate-400">
+      <span>{text.slice(0, Math.max(0, count))}</span>
+      {/* 打字阶段显示闪烁光标 */}
+      {phase === 'typing' && <span className="streaming-caret" aria-hidden="true" />}
+    </p>
+  );
+}
 
 export default function ChatView({
   sidebarOpen,
@@ -87,7 +128,7 @@ export default function ChatView({
             </div>
           )}
           {!conv || conv.messages.length === 0 ? (
-            // 无活跃会话或会话为空（尚未发送消息）：显示背景头像与欢迎语
+            // 无活跃会话或会话为空（尚未发送消息）：显示背景头像与打字机欢迎语
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <img
                 src="./avatar.jpg"
@@ -95,9 +136,7 @@ export default function ChatView({
                 className="size-14 rounded-2xl object-cover shadow-md"
               />
               <h2 className="text-2xl font-semibold text-slate-800">星梦</h2>
-              <p className="text-sm text-slate-400">
-                天生我材必有用，千金散尽还复来
-              </p>
+              <TypewriterQuote text="天生我材必有用，千金散尽还复来" />
             </div>
           ) : (
             conv.messages.map((m) => (
