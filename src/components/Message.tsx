@@ -110,9 +110,9 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
         alt="星梦"
         className="size-8 shrink-0 rounded-full object-cover"
       />
-      <div className="max-w-[85%] flex-1 rounded-2xl rounded-bl-md border border-blue-100/70 bg-white px-4 py-3 shadow-sm">
+      <div className="max-w-[85%] flex-1 rounded-2xl rounded-bl-md border border-blue-100/70 bg-white px-4 py-3 shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
         {hasReasoning && (
-          <div className="mb-2 border-b border-blue-50 pb-2">
+          <div className="mb-2 border-b border-blue-50 pb-2 dark:border-slate-700/60">
             <details
               className="group"
               open={reasoningOpen}
@@ -120,13 +120,13 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
                 setReasoningOpen((e.target as HTMLDetailsElement).open)
               }
             >
-              <summary className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-blue-600">
+              <summary className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400">
                 <i className="fa-solid fa-brain text-blue-400" />
                 思考过程
                 <i className="fa-solid fa-chevron-right text-[10px] transition-transform group-open:rotate-90" />
                 {isStreaming && <i className="fa-solid fa-circle-notch fa-spin" />}
               </summary>
-              <div className="mt-1.5 whitespace-pre-wrap break-words rounded-lg bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-500">
+              <div className="mt-1.5 whitespace-pre-wrap break-words rounded-lg bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-500 dark:bg-slate-900/70 dark:text-slate-400">
                 {message.reasoning}
                 {/* 思考过程流式光标 */}
                 {isStreaming && message.reasoning && (
@@ -161,7 +161,7 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
           <button
             type="button"
             onClick={onRetry}
-            className="mt-2 flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100"
+            className="mt-2 flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-100 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:hover:bg-blue-500/25"
           >
             <i className="fa-solid fa-rotate-right" />
             重试

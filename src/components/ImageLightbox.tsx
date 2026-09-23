@@ -51,7 +51,7 @@ export default function ImageLightbox({
         <button
           type="button"
           onClick={onClose}
-          className="absolute -right-3 -top-3 flex size-8 items-center justify-center rounded-full bg-white text-slate-600 shadow transition-colors hover:text-red-500"
+          className="absolute -right-3 -top-3 flex size-8 items-center justify-center rounded-full bg-white text-slate-600 shadow transition-colors hover:text-red-500 dark:bg-slate-700 dark:text-slate-300 dark:hover:text-red-400"
           aria-label="关闭图片"
         >
           <i className="fa-solid fa-xmark" />

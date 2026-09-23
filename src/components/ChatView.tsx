@@ -36,7 +36,7 @@ function TypewriterQuote({ text }: { text: string }) {
   }, [count, phase, text.length]);
 
   return (
-    <p className="flex min-h-[1.5rem] items-center text-sm text-slate-400">
+    <p className="flex min-h-[1.5rem] items-center text-sm text-slate-400 dark:text-slate-500">
       <span>{text.slice(0, Math.max(0, count))}</span>
       {/* 打字/收回阶段显示闪烁光标 */}
       {(phase === 'typing' || phase === 'erasing') && (
@@ -84,12 +84,12 @@ export default function ChatView({
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       {/* 顶部栏：左侧为侧边栏收展按钮 + 当前会话标题 */}
-      <header className="flex h-14 shrink-0 items-center border-b border-blue-100/70 bg-white/70 px-3 backdrop-blur md:px-4">
+      <header className="flex h-14 shrink-0 items-center border-b border-blue-100/70 bg-white/70 px-3 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70 md:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <button
             type="button"
             onClick={onToggleSidebar}
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-blue-500/10 dark:hover:text-blue-400"
             aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
             title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
           >
@@ -101,7 +101,7 @@ export default function ChatView({
           </button>
           {/* 会话标题：超长省略号截断 */}
           {conv && (
-            <h1 className="truncate text-sm font-medium text-slate-700">
+            <h1 className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">
               {conv.title}
             </h1>
           )}
@@ -116,13 +116,13 @@ export default function ChatView({
       >
         <div className="mx-auto w-full max-w-3xl space-y-6">
           {store.streamError && (
-            <div className="flex items-start gap-2 rounded-2xl border border-red-100 bg-red-50/80 px-4 py-3 text-[13px] text-red-700">
+            <div className="flex items-start gap-2 rounded-2xl border border-red-100 bg-red-50/80 px-4 py-3 text-[13px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
               <i className="fa-solid fa-circle-exclamation mt-0.5" />
               <span className="flex-1 break-words">{store.streamError}</span>
               <button
                 type="button"
                 onClick={() => store.clearStreamError()}
-                className="text-red-400 transition hover:text-red-700"
+                className="text-red-400 transition hover:text-red-700 dark:text-red-400/70 dark:hover:text-red-300"
                 aria-label="关闭错误提示"
               >
                 <i className="fa-solid fa-xmark" />
@@ -137,7 +137,7 @@ export default function ChatView({
                 alt="星梦"
                 className="size-14 rounded-2xl object-cover shadow-md"
               />
-              <h2 className="text-2xl font-semibold text-slate-800">星梦</h2>
+              <h2 className="text-2xl font-semibold text-slate-800 dark:text-slate-100">星梦</h2>
               <TypewriterQuote text="天生我材必有用，千金散尽还复来" />
             </div>
           ) : (
@@ -155,7 +155,7 @@ export default function ChatView({
       </div>
 
       {/* 底部输入区 */}
-      <div className="border-t border-blue-100/70">
+      <div className="border-t border-blue-100/70 dark:border-slate-700/70">
         <InputBar />
       </div>
     </main>

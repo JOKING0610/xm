@@ -68,7 +68,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
   return (
     <div className={`space-y-3 ${className ?? ''}`}>
       {blocks.length === 0 && isStreaming && (
-        <p className="text-slate-600">
+        <p className="text-slate-600 dark:text-slate-300">
           <span className="streaming-caret" />
         </p>
       )}
@@ -94,7 +94,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <Tag
                 key={block.id}
-                className={`font-bold tracking-tight text-slate-800 ${
+                className={`font-bold tracking-tight text-slate-800 dark:text-slate-100 ${
                   headingSizes[level] ?? 'text-lg'
                 }`}
               >
@@ -107,7 +107,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
           case 'paragraph':
             // 去掉 content 末尾的换行
             return (
-              <p key={block.id} className={`${parClasses.paragraph} leading-relaxed text-slate-600`}>
+              <p key={block.id} className={`${parClasses.paragraph} leading-relaxed text-slate-600 dark:text-slate-300`}>
                 <Inline text={block.content.replace(/\n$/, '')} />
                 {isLast && showCaret && <span className="streaming-caret" />}
               </p>
@@ -120,7 +120,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <ul
                 key={block.id}
-                className={`${parClasses.list} list-disc space-y-1.5 pl-6 leading-relaxed text-slate-600 marker:text-blue-400`}
+                className={`${parClasses.list} list-disc space-y-1.5 pl-6 leading-relaxed text-slate-600 marker:text-blue-400 dark:text-slate-300`}
               >
                 {items.map((item, i) => (
                   <li key={i}>
@@ -143,7 +143,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <blockquote
                 key={block.id}
-                className={`${parClasses.quote} rounded-r-lg border-l-4 border-blue-400 bg-blue-50/60 px-4 py-2 leading-relaxed text-slate-600`}
+                className={`${parClasses.quote} rounded-r-lg border-l-4 border-blue-400 bg-blue-50/60 px-4 py-2 leading-relaxed text-slate-600 dark:border-blue-500/70 dark:bg-blue-500/10 dark:text-slate-300`}
               >
                 {lines.map((line, i) => (
                   <div key={i}>
@@ -170,15 +170,15 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <div
                 key={block.id}
-                className="my-2 overflow-hidden rounded-xl border border-blue-100 shadow-sm"
+                className="my-2 overflow-hidden rounded-xl border border-blue-100 shadow-sm dark:border-slate-600 dark:shadow-black/20"
               >
                 <table className="w-full border-collapse text-sm">
                   <thead>
-                    <tr className="bg-blue-50">
+                    <tr className="bg-blue-50 dark:bg-blue-500/15">
                       {header.map((cell, i) => (
                         <th
                           key={i}
-                          className="px-3 py-2 text-left font-semibold text-slate-700"
+                          className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200"
                         >
                           {cell}
                         </th>
@@ -189,10 +189,10 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
                     {body.map((row, ri) => (
                       <tr
                         key={ri}
-                        className="border-t border-blue-100 odd:bg-white even:bg-slate-50/60 hover:bg-blue-50/50"
+                        className="border-t border-blue-100 odd:bg-white even:bg-slate-50/60 hover:bg-blue-50/50 dark:border-slate-700 dark:odd:bg-slate-800 dark:even:bg-slate-800/60 dark:hover:bg-blue-500/10"
                       >
                         {row.map((cell, ci) => (
-                          <td key={ci} className="px-3 py-1.5 text-slate-600">
+                          <td key={ci} className="px-3 py-1.5 text-slate-600 dark:text-slate-300">
                             {cell}
                           </td>
                         ))}
@@ -205,7 +205,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
           }
 
           case 'hr':
-            return <hr key={block.id} className="my-3 border-t-2 border-blue-100/70" />;
+            return <hr key={block.id} className="my-3 border-t-2 border-blue-100/70 dark:border-slate-700" />;
 
           default:
             return null;

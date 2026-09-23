@@ -81,7 +81,7 @@ export default function Inline({ text, className }: InlineProps) {
         return (
           <code
             key={key}
-            className="rounded bg-blue-50 text-blue-700 px-1.5 py-0.5 font-mono text-[0.85em]"
+            className="rounded bg-blue-50 text-blue-700 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-blue-500/20 dark:text-blue-300"
           >
             {token.value}
           </code>
@@ -104,7 +104,7 @@ export default function Inline({ text, className }: InlineProps) {
         );
       }
       case 'bold':
-        return <strong key={key} className="font-semibold text-slate-800">{token.value}</strong>;
+        return <strong key={key} className="font-semibold text-slate-800 dark:text-slate-100">{token.value}</strong>;
       case 'italic':
         return <em key={key}>{token.value}</em>;
       case 'text': {
