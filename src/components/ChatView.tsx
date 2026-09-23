@@ -38,8 +38,10 @@ function TypewriterQuote({ text }: { text: string }) {
   return (
     <p className="flex min-h-[1.5rem] items-center text-sm text-slate-400">
       <span>{text.slice(0, Math.max(0, count))}</span>
-      {/* 打字阶段显示闪烁光标 */}
-      {phase === 'typing' && <span className="streaming-caret" aria-hidden="true" />}
+      {/* 打字/收回阶段显示闪烁光标 */}
+      {(phase === 'typing' || phase === 'erasing') && (
+        <span className="streaming-caret" aria-hidden="true" />
+      )}
     </p>
   );
 }
