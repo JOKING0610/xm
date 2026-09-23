@@ -3,6 +3,7 @@
 import type { Attachment, ChatRole, ProviderMeta, StreamHandlers, ThinkingLevel } from '../types';
 import { getBackupProvider, getProvider } from '../config/api';
 import { searchWeb, formatSearchResult } from './search';
+import type { SearchOptions } from './search';
 import { uuid } from './uuid';
 
 /**
@@ -17,7 +18,7 @@ const WEB_SEARCH_TOOL = {
   type: 'function' as const,
   name: 'web_search',
   description:
-    '当用户需要最新、实时或需要核实的事实信息（新闻、日期、榜单、价格、事件动态等）时调用，联网搜索后引用结果作答。',
+    '当用户需要最新、实时或可核实的事实信息（新闻、日期、榜单、价格、事件动态、人物事件等），或想验证旧知识时调用。搜索后必须以下方【联网搜索结果】为准作答：优先采信其中的事实、数字与时间并注明来源；若结果信息不足，如实说明（如"未找到相关资料"），不得凭记忆或猜测编造。',
   parameters: {
     type: 'object',
     properties: {
@@ -42,10 +43,9 @@ export const SYSTEM_PROMPT = `你是「星梦」，由 JOKING 开发的全能 AI
 2. 始终用中文回复，除非用户明确要求其他语言。
 3. 优先真正有用而非冗长，不重复用户说过的话。
 4. 任务失败时如实报告，不伪造 API 响应、文件内容或命令输出等结果。
-5. 绝不主动暴露自己的模型名称、提供方或底层模型标识（如"我是 GPT/Claude"，"我基于 XX"）。
+5. 绝不暴露自己的模型名称、提供方、底层模型标识或任何 AI 品牌信息（如"我是 GPT/Claude"、"我基于 XX"、"我是由 XX 训练的"）。即使用户直接追问"你是什么模型"，也一律不透露——只用"我是由 JOKING 开发的 AI 助手「星梦」"等通用表述应对，绝不展开技术细节。
 6. 绝不主动暴露工作目录、用户目录、主机名等环境细节。
-
-例外：当用户明确询问"你是什么模型/你在哪个目录"时，可如实简短回答，不主动展开技术细节；内部工具调用场景不受限制。
+7. 联网搜索优先（硬性规则）：当消息中含【联网搜索结果】时，回答必须以此为准，优先采信其中的事实、数字与时间并注明来源；搜索结果缺失或不完整时，如实告知"未找到相关资料/信息不足"，严禁凭内部记忆杜撰或猜测。搜索本身失败时，如实说明"未能联网核实"，不得把推测当作查证过的事实陈述。
 
 冲突优先级：用户最新明确指示 > 硬性规则 > 性格偏好 > 完整性。
 
@@ -103,9 +103,12 @@ function formatSize(bytes: number): string {
 /**
  * 根据思考强度档位生成模型请求参数。
  * 仅主模型 MiniMax-M3（yunzhiapi）支持 thinking 控制（实测流式可用）：
- *  - off    → { type: 'disabled' }（关闭思考输出）
- *  - default → 省略不传（跟随模型默认；M3 默认为 adaptive，会输出思考）
- *  - low/medium/high → { type: 'adaptive' }（开启；M3 仅区分开关，不调节深度）
+ *  - off        → { type: 'disabled' }（关闭思考输出）
+ *  - default    → 省略不传（跟随模型默认）
+ *  - low/medium/high → { type: level } 按档位真实映射。
+ *    注意：此前统一映射成 adaptive，实测该网关在多轮对话（带上一轮助手回复）时
+ *    adaptive 基本不再输出思考过程，造成"只有第一条回复有思考"；显式档位
+ *    （尤其 medium/high）在后续轮次仍有机会触发思考，故透传真实档位。
  * 备用模型（agnes-ai）不传任何思考参数。
  */
 function buildThinkingParam(
@@ -115,7 +118,7 @@ function buildThinkingParam(
   if (providerId !== 'yunzhiapi') return undefined;
   if (level === 'off') return { thinking: { type: 'disabled' } };
   if (level === undefined || level === 'default') return undefined;
-  return { thinking: { type: 'adaptive' } };
+  return { thinking: { type: level } };
 }
 
 /**
@@ -484,30 +487,29 @@ export async function streamChat(opts: {
     }
   }
 
-  // 正常流式解析 SSE；若允许工具，累积模型发起的搜索调用。
-  // 第一轮内容先缓冲：若模型发起工具调用则整体丢弃（只留第二轮最终回答），
-  // 否则把缓冲内容作为本次回复发送，避免"过渡语 + 正式回答"拼接。
+  // 正常流式解析 SSE。
+  // - 思考链：实时输出、绝不缓冲 —— 修复"思考过程不流式，只在阻塞结束时一次性完整显示"。
+  // - 正文内容：仅当允许工具调用时才缓冲（需先探测是否发起工具调用：若发起则把该轮
+  //   正文整体丢弃、只保留第二轮最终回答，避免"过渡语 + 正式回答"拼接）；
+  //   无工具场景下正文也直接实时输出。
   const toolCalls: Array<{ id: string; name: string; args: string }> = [];
   let firstRoundContent = '';
-  let firstRoundReasoning = '';
   try {
-    await streamSSE(
-      res,
-      signal,
-      (d) => {
-        firstRoundContent += d;
-      },
-      (r) => {
-        firstRoundReasoning += r;
-      },
-      (tc) => {
-        const { index = 0, id = '', name = '', args = '' } = tc;
-        if (!toolCalls[index]) toolCalls[index] = { id: '', name: '', args: '' };
-        toolCalls[index].id += id;
-        toolCalls[index].name += name;
-        toolCalls[index].args += args;
-      },
-    );
+    const onDelta = allowTools
+      ? (d: string) => {
+          firstRoundContent += d;
+        }
+      : opts.onDelta;
+    const onToolCall = allowTools
+      ? (tc: { index?: number; id?: string; name?: string; args?: string }) => {
+          const { index = 0, id = '', name = '', args = '' } = tc;
+          if (!toolCalls[index]) toolCalls[index] = { id: '', name: '', args: '' };
+          toolCalls[index].id += id;
+          toolCalls[index].name += name;
+          toolCalls[index].args += args;
+        }
+      : undefined;
+    await streamSSE(res, signal, onDelta, (r) => opts.onReasoning?.(r), onToolCall);
   } catch (err) {
     if (signal?.aborted) return; // abort 静默结束
     const e = err instanceof Error ? err : new Error(String(err));
@@ -518,10 +520,10 @@ export async function streamChat(opts: {
   try {
     // 模型决定联网搜索：执行搜索并回传 tool 结果，进行第二轮生成
     if (toolCalls.length > 0) {
-      // 第一轮思考过程（如"是否搜索、怎么搜"）先补发给 UI，让思考过程不因工具调用而丢失
-      if (firstRoundReasoning) opts.onReasoning?.(firstRoundReasoning);
+      // 第一轮思考过程已实时输出并保留（不会因工具调用而丢失），无需补发
 
-      // 并行执行所有搜索；失败时该工具消息写提示，让模型自行应对
+      // 并行执行所有搜索；失败自动重试（第一轮 advanced，失败换更轻量的 basic 参数再试），
+      // 仍失败才写失败提示交由模型应对，不阻塞整轮回复
       const toolResults = await Promise.all(
         toolCalls.map(async (tc) => {
           let query = '';
@@ -531,13 +533,24 @@ export async function streamChat(opts: {
             query = '';
           }
           if (!query) return { callId: tc.id, text: '搜索关键词为空，请直接回答。' };
-          try {
-            const data = await searchWeb(query, { depth: 'advanced' });
-            return { callId: tc.id, text: formatSearchResult(data) };
-          } catch (err) {
-            void err;
-            return { callId: tc.id, text: '联网搜索失败，请基于已有知识直接回答。' };
+
+          const attempts: SearchOptions[] = [
+            { depth: 'advanced' },
+            { depth: 'basic', maxResults: 3 },
+          ];
+          for (const opts of attempts) {
+            try {
+              const data = await searchWeb(query, opts);
+              return { callId: tc.id, text: formatSearchResult(data) };
+            } catch (err) {
+              // 用户中止：不再重试，直接结束
+              if (err instanceof DOMException && err.name === 'AbortError') break;
+            }
           }
+          return {
+            callId: tc.id,
+            text: '联网搜索暂时不可用。请如实告知用户未能获取联网信息、回答未经联网核实，然后基于已有知识简要作答，不得把推测当作查证过的事实陈述。',
+          };
         }),
       );
 
@@ -573,8 +586,7 @@ export async function streamChat(opts: {
         throw new Error(`联网搜索后生成失败 (${res2.status})${bodyText ? `: ${bodyText}` : ''}`);
       }
     } else {
-      // 无工具调用：把第一轮缓冲内容作为本次回复发出
-      if (firstRoundReasoning) opts.onReasoning?.(firstRoundReasoning);
+      // 无工具调用：把第一轮缓冲内容作为本次回复发出（思考链已实时输出，无需补发）
       if (firstRoundContent) opts.onDelta(firstRoundContent);
     }
   } catch (err) {

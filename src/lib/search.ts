@@ -90,9 +90,13 @@ export async function searchWeb(
 
 /**
  * 把搜索结果格式化为可注入消息上下文的文本。
+ * 开头注入指令：要求模型以搜索结果为准作答（搜索信息是实时来源，优先采信并注明出处）。
  */
 export function formatSearchResult(data: SearchData): string {
-  const parts: string[] = [`搜索：${data.query}`];
+  const parts: string[] = [
+    '以下为联网搜索到的实时信息，回答必须以此为准：优先采信其中的事实、数字与时间并注明来源；若信息不足，如实说明，不得凭记忆猜测。',
+    `搜索：${data.query}`,
+  ];
   if (data.answer) {
     parts.push(`AI 摘要：${data.answer}`);
   }
