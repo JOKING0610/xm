@@ -159,7 +159,7 @@ function ConversationItem({
   );
 }
 
-export default function Sidebar({ open }: { open: boolean }) {
+export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const store = useChatStore();
   const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
 
@@ -187,10 +187,14 @@ export default function Sidebar({ open }: { open: boolean }) {
           <span className="font-semibold text-slate-800">星梦</span>
         </div>
 
-        {/* 新建对话：始终可点；已存在空会话时点击切换到该会话，否则新建 */}
+        {/* 新建对话：始终可点；已存在空会话时点击切换到该会话，否则新建；移动端自动收起侧边栏 */}
         <div className="px-3">
           <button
-            onClick={() => store.openOrCreateEmpty()}
+            onClick={() => {
+              store.openOrCreateEmpty();
+              // 移动端（<768px，与 md 断点一致）：新建后收起抽屉
+              if (window.innerWidth < 768) onClose();
+            }}
             title="新建对话"
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
           >

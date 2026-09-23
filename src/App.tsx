@@ -19,7 +19,7 @@ export default function App() {
             onClick={() => setSidebarOpen(false)}
           />
         )}
-        <Sidebar open={sidebarOpen} />
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <ChatView
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
