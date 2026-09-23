@@ -171,7 +171,8 @@ export default function Sidebar({
   onClose: () => void;
   /** 当前主题：light / dark（用于按钮图标显示） */
   theme: 'light' | 'dark';
-  onToggleTheme: () => void;
+  /** 切换主题（传入点击坐标，用于圆形展开动画的圆心） */
+  onToggleTheme: (x: number, y: number) => void;
 }) {
   const store = useChatStore();
   const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
@@ -202,7 +203,7 @@ export default function Sidebar({
           </div>
           <button
             type="button"
-            onClick={onToggleTheme}
+            onClick={(e) => onToggleTheme(e.clientX, e.clientY)}
             title={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}
             aria-label={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}
             className="flex size-9 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-blue-500/10 dark:hover:text-blue-400"

@@ -110,3 +110,52 @@ body {
 .code-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ===== 动态主题切换效果 ===== */
+/* View Transitions：新主题从点击位置向外圆形展开（default 快照设为无动画 + 分层） */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+  animation: theme-reveal 0.45s ease-in-out forwards;
+}
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0% at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+  to {
+    clip-path: circle(141.4% at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+}
+
+/* 降级方案：不支持 View Transitions 的浏览器，切换瞬间给全局短暂加颜色过渡 */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease,
+    fill 0.35s ease,
+    box-shadow 0.35s ease !important;
+}
+
+/* 系统开启"减少动态效果"时跳过主题动画 */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root) {
+    animation: none;
+  }
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition: none !important;
+  }
+}
