@@ -40,21 +40,29 @@ export default function ChatView({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      {/* 顶部栏：左侧为侧边栏收展按钮 */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-blue-100/70 bg-white/70 px-3 backdrop-blur md:px-4">
-        <button
-          type="button"
-          onClick={onToggleSidebar}
-          className="flex size-9 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
-          aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
-          title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
-        >
-          <i
-            className={`fa-solid fa-angles-left text-sm transition-transform duration-300 ${
-              sidebarOpen ? '' : 'rotate-180'
-            }`}
-          />
-        </button>
+      {/* 顶部栏：左侧为侧边栏收展按钮 + 当前会话标题 */}
+      <header className="flex h-14 shrink-0 items-center border-b border-blue-100/70 bg-white/70 px-3 backdrop-blur md:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
+            aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+            title={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+          >
+            <i
+              className={`fa-solid fa-angles-left text-sm transition-transform duration-300 ${
+                sidebarOpen ? '' : 'rotate-180'
+              }`}
+            />
+          </button>
+          {/* 会话标题：超长省略号截断 */}
+          {conv && (
+            <h1 className="truncate text-sm font-medium text-slate-700">
+              {conv.title}
+            </h1>
+          )}
+        </div>
       </header>
 
       {/* 消息区 */}
@@ -79,7 +87,7 @@ export default function ChatView({
             </div>
           )}
           {!conv || conv.messages.length === 0 ? (
-            // 无活跃会话或会话为空（尚未发送消息）：显示背景头像
+            // 无活跃会话或会话为空（尚未发送消息）：显示背景头像与欢迎语
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <img
                 src="./avatar.jpg"
@@ -87,6 +95,9 @@ export default function ChatView({
                 className="size-14 rounded-2xl object-cover shadow-md"
               />
               <h2 className="text-2xl font-semibold text-slate-800">星梦</h2>
+              <p className="text-sm text-slate-400">
+                天生我材必有用，千金散尽还复来
+              </p>
             </div>
           ) : (
             conv.messages.map((m) => (

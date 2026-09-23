@@ -68,10 +68,14 @@ function AttachmentsGrid({ items }: { items: Attachment[] }) {
 }
 
 function Message({ message, isStreaming, onRetry }: MessageProps) {
-  // 思考过程展开态：流式（含思考内容）时自动展开，便于看到逐字的思考过程
+  // 思考过程展开态：流式（含思考内容）时自动展开便于逐字查看；回复结束后自动收起
   const [reasoningOpen, setReasoningOpen] = useState(false);
   useEffect(() => {
-    if (isStreaming && message.reasoning) setReasoningOpen(true);
+    if (isStreaming && message.reasoning) {
+      setReasoningOpen(true);
+    } else if (!isStreaming) {
+      setReasoningOpen(false);
+    }
   }, [isStreaming, message.reasoning]);
 
   // 用户消息：右侧蓝色气泡，纯文本 + 附件预览
