@@ -170,7 +170,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <div
                 key={block.id}
-                className="my-2 overflow-hidden rounded-xl border border-blue-100 shadow-sm dark:border-slate-600 dark:shadow-black/20"
+                className="my-2 overflow-x-auto rounded-xl border border-blue-100 shadow-sm dark:border-slate-600 dark:shadow-black/20"
               >
                 <table className="w-full border-collapse text-sm">
                   <thead>

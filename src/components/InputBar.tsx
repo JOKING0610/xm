@@ -38,7 +38,7 @@ function ThinkingMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
           open
             ? 'border-blue-400 text-blue-600 dark:border-blue-500/60 dark:text-blue-400'
             : 'border-blue-100 bg-white text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-400'
@@ -440,8 +440,8 @@ export default function InputBar() {
   return (
     <div className="px-3 py-3 md:px-4">
       <div className="mx-auto w-full max-w-3xl">
-        {/* 工具箱：思考强度 + 联网搜索（输入框上方） */}
-        <div className="mb-2 flex items-center gap-2">
+        {/* 工具箱：思考强度 + 联网搜索（输入框上方）；窄屏自动换行避免挤压 */}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           {/* 思考强度：自定义胶囊下拉菜单 */}
           <ThinkingMenu
             level={store.settings.thinkingLevel ?? 'default'}
@@ -453,7 +453,7 @@ export default function InputBar() {
             onClick={() => setSearchEnabled((v) => !v)}
             title={searchEnabled ? '联网搜索：已开启' : '联网搜索：已关闭'}
             aria-pressed={searchEnabled}
-            className="flex items-center gap-1.5 rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-400"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-400"
           >
             <i className="fa-solid fa-earth-asia" />
             联网搜索
@@ -568,7 +568,7 @@ export default function InputBar() {
             }}
             onKeyDown={handleKeyDown}
             aria-label="输入消息"
-            className="max-h-[20vh] flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-[15px] leading-6 text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className="max-h-[20vh] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-[15px] leading-6 text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           {store.isStreaming ? (
             // 流式期间显示停止按钮，避免重复发送
