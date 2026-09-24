@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useState } from 'react';
 import type { Attachment, ChatMessage } from '../types';
 import Markdown from './Markdown';
 import ImageLightbox from './ImageLightbox';
@@ -68,16 +68,6 @@ function AttachmentsGrid({ items }: { items: Attachment[] }) {
 }
 
 function Message({ message, isStreaming, onRetry }: MessageProps) {
-  // 思考过程展开态：流式（含思考内容）时自动展开便于逐字查看；回复结束后自动收起
-  const [reasoningOpen, setReasoningOpen] = useState(false);
-  useEffect(() => {
-    if (isStreaming && message.reasoning) {
-      setReasoningOpen(true);
-    } else if (!isStreaming) {
-      setReasoningOpen(false);
-    }
-  }, [isStreaming, message.reasoning]);
-
   // 用户消息：右侧蓝色气泡，纯文本 + 附件预览
   if (message.role === 'user') {
     const hasAttachments = !!message.attachments && message.attachments.length > 0;
@@ -95,7 +85,6 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
 
   // 助手消息：左侧头像 + 右侧 Markdown 气泡
   const empty = isStreaming && message.content === '';
-  const hasReasoning = !!message.reasoning;
   // 流式输出追加闪烁光标，让"正在生成"更明显；
   // 若内容以代码围栏结尾（CodeBlock 自身已带光标），跳过外部光标避免双光标
   const trimmedEnd = message.content.trimEnd();
@@ -111,32 +100,7 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
         className="size-8 shrink-0 rounded-full object-cover"
       />
       <div className="max-w-[85%] flex-1 rounded-2xl rounded-bl-md border border-blue-100/70 bg-white px-4 py-3 shadow-sm dark:border-slate-700/70 dark:bg-slate-800">
-        {hasReasoning && (
-          <div className="mb-2 border-b border-blue-50 pb-2 dark:border-slate-700/60">
-            <details
-              className="group"
-              open={reasoningOpen}
-              onToggle={(e) =>
-                setReasoningOpen((e.target as HTMLDetailsElement).open)
-              }
-            >
-              <summary className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400">
-                <i className="fa-solid fa-brain text-blue-400" />
-                思考过程
-                <i className="fa-solid fa-chevron-right text-[10px] transition-transform group-open:rotate-90" />
-                {isStreaming && <i className="fa-solid fa-circle-notch fa-spin" />}
-              </summary>
-              <div className="mt-1.5 whitespace-pre-wrap break-words rounded-lg bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-500 dark:bg-slate-900/70 dark:text-slate-400">
-                {message.reasoning}
-                {/* 思考过程流式光标 */}
-                {isStreaming && message.reasoning && (
-                  <span className="streaming-caret" aria-hidden="true" />
-                )}
-              </div>
-            </details>
-          </div>
-        )}
-        {empty && !hasReasoning ? (
+        {empty ? (
           // 尚未输出时的三点省略动画
           <div className="flex gap-1 py-0.5">
             {[0, 150, 300].map((d) => (

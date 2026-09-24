@@ -373,7 +373,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       role: 'assistant',
       content: '',
       createdAt: now,
-      reasoning: '',
     };
     const working: Conversation = {
       ...seed,
@@ -392,7 +391,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       patchConversation(c);
     };
 
-    // 对占位消息做追加/替换（content / reasoning 分开累积）
+    // 对占位消息做追加/替换
     const mutatePlaceholder = (fn: (m: ChatMessage) => ChatMessage) =>
       commit({
         ...workingCurrent,
@@ -425,9 +424,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       allowSearch: extra?.allowSearch,
       onDelta: (d) =>
         mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
-      // 思维链增量累积
-      onReasoning: (d) =>
-        mutatePlaceholder((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
       // 备用模型提示：静默切换，不向前端注入任何提示文本
       onFallback: () => {
         // 留空：主模型不可用时自动切备用模型，但 UI 无感知
