@@ -106,6 +106,17 @@ export default function ChatView({
             </h1>
           )}
         </div>
+        {/* 下载 App：下载安装包（Android APK） */}
+        <a
+          href="https://joking-renwu.oss-cn-guangzhou.aliyuncs.com/app-release.apk"
+          download="app-release.apk"
+          title="下载 App"
+          aria-label="下载 App"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+        >
+          <i className="fa-solid fa-download text-xs" />
+          下载 App
+        </a>
       </header>
 
       {/* 消息区 */}
