@@ -106,9 +106,9 @@ export default function ChatView({
             </h1>
           )}
         </div>
-        {/* 下载 App：下载安装包（Android APK） */}
+        {/* 下载 App：安装包随站点一同部署（public/xingmeng-2609251.apk），download 指定保存文件名 */}
         <a
-          href="https://joking-renwu.oss-cn-guangzhou.aliyuncs.com/%E6%98%9F%E6%A2%A62609251%E6%AD%A3%E5%BC%8F%E7%89%88.apk"
+          href="./xingmeng-2609251.apk"
           download="星梦2609251正式版.apk"
           title="下载 App"
           aria-label="下载 App"
