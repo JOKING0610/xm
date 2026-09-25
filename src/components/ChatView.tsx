@@ -108,8 +108,8 @@ export default function ChatView({
         </div>
         {/* 下载 App：下载安装包（Android APK） */}
         <a
-          href="https://joking-renwu.oss-cn-guangzhou.aliyuncs.com/app-release.apk"
-          download="app-release.apk"
+          href="https://joking-renwu.oss-cn-guangzhou.aliyuncs.com/%E6%98%9F%E6%A2%A62609251%E6%AD%A3%E5%BC%8F%E7%89%88.apk"
+          download="星梦2609251正式版.apk"
           title="下载 App"
           aria-label="下载 App"
           className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
