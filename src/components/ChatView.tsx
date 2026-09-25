@@ -4,6 +4,15 @@ import Message from './Message';
 import InputBar from './InputBar';
 
 /**
+ * 安装包地址：阿里云 OSS 默认域名禁止分发以 .apk 命名的文件（响应头 Content-Disposition 中出现 .apk 同样会被拦截），
+ * 因此对象以 .bin 后缀存储，由前端取回后重命名为 .apk 再保存。
+ */
+const APK_URL =
+  'https://joking-renwu.oss-cn-guangzhou.aliyuncs.com/xingmeng-2609251-release.bin';
+/** 安装包另存到本地时使用的文件名 */
+const APK_NAME = '星梦2609251正式版.apk';
+
+/**
  * 空会话欢迎语的打字机效果：
  * 逐字显示 → 全部显示后等待 5s → 逐字收回 → 收回后等待 3s → 重新打字，循环往复。
  */
@@ -58,6 +67,8 @@ export default function ChatView({
   // 消息滚动容器 + "是否接近底部"跟踪：用户上滑浏览历史时不强制被拉回底部
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
+  // 安装包下载中状态：下载期间按钮显示进度并禁用，避免重复触发
+  const [downloading, setDownloading] = useState(false);
   const conv = store.activeConversation;
   // 防御性取值：历史/异常数据可能缺 messages 字段
   const msgs = conv?.messages ?? [];
@@ -70,6 +81,34 @@ export default function ChatView({
     if (!el) return;
     // 距底部小于 80px 视为"在底部"
     nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
+  /**
+   * 下载安装包：取回 OSS 上的 .bin 对象，以 .apk 文件名另存到本地。
+   * 依赖 Bucket 的 CORS 规则允许本站跨域 GET；失败时兜底跳转原始地址（拿到的是 .bin，需手动改后缀）。
+   */
+  async function downloadApk(): Promise<void> {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(APK_URL);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = APK_NAME;
+      // 部分浏览器要求锚点在文档中才响应 click()，点击后立即移除
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // 等浏览器接管下载后再释放内存
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch {
+      window.location.href = APK_URL;
+    } finally {
+      setDownloading(false);
+    }
   }
 
   // 消息变化时：仅当用户本就贴近底部时才跟随滚动；上滑浏览历史时保持位置
@@ -106,17 +145,22 @@ export default function ChatView({
             </h1>
           )}
         </div>
-        {/* 下载 App：安装包随站点一同部署（public/xingmeng-2609251.apk），download 指定保存文件名 */}
-        <a
-          href="./xingmeng-2609251.apk"
-          download="星梦2609251正式版.apk"
+        {/* 下载 App：按钮触发取回安装包并以 .apk 文件名保存（详见 APK_URL 注释） */}
+        <button
+          type="button"
+          onClick={() => void downloadApk()}
+          disabled={downloading}
           title="下载 App"
           aria-label="下载 App"
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <i className="fa-solid fa-download text-xs" />
-          下载 App
-        </a>
+          <i
+            className={`fa-solid text-xs ${
+              downloading ? 'fa-circle-notch fa-spin' : 'fa-download'
+            }`}
+          />
+          {downloading ? '下载中…' : '下载 App'}
+        </button>
       </header>
 
       {/* 消息区 */}
