@@ -53,7 +53,7 @@ function ThinkingBlock({
         )}
       </button>
       {expanded && (
-        <div className="max-h-64 overflow-y-auto border-t border-blue-100/60 px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words text-slate-500 dark:border-slate-700/60 dark:text-white/85">
+        <div className="border-t border-blue-100/60 px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words text-slate-500 dark:border-slate-700/60 dark:text-white/85">
           {reasoning}
           {thinking && <span className="streaming-caret" aria-hidden="true" />}
         </div>
