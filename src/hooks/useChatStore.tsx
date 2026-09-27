@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import type { Attachment, ChatMessage, Conversation, ProviderId, Settings, ThinkingLevel } from '../types';
 import { DEFAULT_PROVIDER, getProvider } from '../config/api';
-import { streamChatSmart } from '../lib/api';
+import { streamChat } from '../lib/api';
 import { dbAll, dbDelete, dbGet, dbPut } from '../lib/db';
 import { uuid } from '../lib/uuid';
 
@@ -131,12 +131,12 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
             id: c.id,
             title: typeof c.title === 'string' && c.title ? c.title : '新对话',
             messages: Array.isArray(c.messages) ? c.messages : [],
-            model: c.model === 'yunzhiapi' || c.model === 'agnes-ai' ? c.model : DEFAULT_PROVIDER,
+            model: c.model === DEFAULT_PROVIDER ? c.model : DEFAULT_PROVIDER,
             createdAt: Number.isFinite(c.createdAt) ? c.createdAt : Date.now(),
             updatedAt: Number.isFinite(c.updatedAt) ? c.updatedAt : Date.now(),
           }));
         setConversations(normalized);
-        if (st?.value && (st.value.model === 'yunzhiapi' || st.value.model === 'agnes-ai')) {
+        if (st?.value && st.value.model === DEFAULT_PROVIDER) {
           setSettings({
             model: st.value.model,
             thinkingLevel: isThinkingLevel(st.value.thinkingLevel)
@@ -416,38 +416,42 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     abortsRef.current.set(working.id, abort);
     markStreaming(working.id);
 
-    await streamChatSmart({
-      provider: getProvider(workingCurrent.model),
-      messages: history,
-      signal: abort.signal,
-      thinkingLevel: settings.thinkingLevel ?? 'default',
-      allowSearch: extra?.allowSearch,
-      onDelta: (d) =>
-        mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
-      // 备用模型提示：静默切换，不向前端注入任何提示文本
-      onFallback: () => {
-        // 留空：主模型不可用时自动切备用模型，但 UI 无感知
-      },
-      // 警告类（如图片自动剥离）：stream 仍会继续，仅顶部展示
-      onWarning: (m) => {
-        setStreamError(m);
-      },
-      onError: (e) => {
-        // 对外统一文案，不暴露底层错误细节；标记失败以显示重试按钮
+    try {
+      await streamChat({
+        provider: getProvider(workingCurrent.model),
+        messages: history,
+        signal: abort.signal,
+        thinkingLevel: settings.thinkingLevel ?? 'default',
+        allowSearch: extra?.allowSearch,
+        onDelta: (d) =>
+          mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
+        onReasoning: (d) =>
+          mutatePlaceholder((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
+        onError: (e) => {
+          // 对外统一文案，不暴露底层错误细节；标记失败以显示重试按钮
+          void e;
+          setStreamError(ERROR_BUSY);
+          mutatePlaceholder((m) => ({ ...m, content: ERROR_BUSY, failed: true }));
+          unmarkStreaming(working.id);
+        },
+        onDone: () => {
+          // 流正常结束：清掉该会话的流式标记与 AbortController
+          unmarkStreaming(working.id);
+          // 回复完成时用户已切到其它会话 → 侧边栏绿点提醒
+          if (working.id !== activeIdRef.current) {
+            markUnread(working.id);
+          }
+        },
+      });
+    } catch (e) {
+      // streamChat 可能抛错（如 409 重试仍失败）：与 onError 一致地标记失败
+      if (!abort.signal.aborted) {
         void e;
         setStreamError(ERROR_BUSY);
         mutatePlaceholder((m) => ({ ...m, content: ERROR_BUSY, failed: true }));
         unmarkStreaming(working.id);
-      },
-      onDone: () => {
-        // 流正常结束：清掉该会话的流式标记与 AbortController
-        unmarkStreaming(working.id);
-        // 回复完成时用户已切到其它会话 → 侧边栏绿点提醒
-        if (working.id !== activeIdRef.current) {
-          markUnread(working.id);
-        }
-      },
-    });
+      }
+    }
 
     // streamChat 返回后统一复位并保存最终会话（防御性清理；onDone 已清过）
     unmarkStreaming(working.id);

@@ -1,7 +1,7 @@
 // 全局共享类型定义（各模块的公共契约）
 
 /** 内置 API 提供方标识 */
-export type ProviderId = 'yunzhiapi' | 'agnes-ai';
+export type ProviderId = 'glm';
 
 /** 提供方配置（baseURL + key + 默认模型） */
 export interface ProviderMeta {
@@ -71,16 +71,4 @@ export interface Block {
   level?: number;
   lang?: string;
   rows?: string[][];
-}
-
-/** 流式回复回调 */
-export interface StreamHandlers {
-  onDelta: (delta: string) => void;
-  /** 思维链增量（reasoning_content） */
-  onReasoning?: (delta: string) => void;
-  onError?: (err: Error) => void;
-  onWarning?: (msg: string) => void;
-  onFallback?: (msg: string) => void;
-  onDone?: () => void;
-  signal?: AbortSignal;
 }

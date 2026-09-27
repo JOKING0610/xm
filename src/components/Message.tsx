@@ -10,6 +10,58 @@ interface MessageProps {
   onRetry?: () => void;
 }
 
+/** 思考过程块：可折叠；流式思考中默认展开并带呼吸点，完成后可收折 */
+function ThinkingBlock({
+  reasoning,
+  isStreaming,
+  isWaitingContent,
+}: {
+  reasoning: string;
+  isStreaming: boolean;
+  /** 思考已可见但正文还未开始输出（模型仍在思考） */
+  isWaitingContent: boolean;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const thinking = isStreaming && isWaitingContent;
+  return (
+    <div className="mb-2 overflow-hidden rounded-xl bg-blue-50/70 ring-1 ring-blue-100/70 dark:bg-slate-900/60 dark:ring-slate-700/60">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-[12px] font-medium text-blue-500 transition-colors hover:bg-blue-100/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
+      >
+        <i
+          className={`fa-solid fa-chevron-down text-[10px] transition-transform duration-200 ${
+            expanded ? '' : '-rotate-90'
+          }`}
+        />
+        {thinking ? (
+          <span className="flex items-center gap-1.5">
+            思考中
+            <span className="flex gap-0.5">
+              {[0, 180, 360].map((d) => (
+                <span
+                  key={d}
+                  className="size-[3px] animate-bounce rounded-full bg-blue-400"
+                  style={{ animationDelay: `${d}ms` }}
+                />
+              ))}
+            </span>
+          </span>
+        ) : (
+          <span>思考过程</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="max-h-64 overflow-y-auto border-t border-blue-100/60 px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words text-slate-500 dark:border-slate-700/60 dark:text-white/85">
+          {reasoning}
+          {thinking && <span className="streaming-caret" aria-hidden="true" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 友好显示文件大小 */
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -84,7 +136,11 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
   }
 
   // 助手消息：左侧头像 + 右侧 Markdown 气泡
-  const empty = isStreaming && message.content === '';
+  const hasReasoning = !!message.reasoning;
+  // 仅当内容/思考都为空才算占位等待（思考流式到达时先展示思考块）
+  const empty = isStreaming && message.content === '' && !hasReasoning;
+  // 思考已开始但正文未输出：仍在思考（块内显示"思考中"）
+  const waitingContent = hasReasoning && message.content === '';
   // 流式输出追加闪烁光标，让"正在生成"更明显；
   // 若内容以代码围栏结尾（CodeBlock 自身已带光标），跳过外部光标避免双光标
   const trimmedEnd = message.content.trimEnd();
@@ -113,7 +169,16 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
           </div>
         ) : (
           <>
-            <Markdown text={message.content} isStreaming={isStreaming} />
+            {hasReasoning && (
+              <ThinkingBlock
+                reasoning={message.reasoning!}
+                isStreaming={isStreaming}
+                isWaitingContent={waitingContent}
+              />
+            )}
+            {message.content && (
+              <Markdown text={message.content} isStreaming={isStreaming} />
+            )}
             {/* 流式光标：闪烁 ▍ 提示正在生成 */}
             {showStreamCaret && (
               <span className="streaming-caret" aria-hidden="true" />
