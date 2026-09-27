@@ -1,7 +1,8 @@
 // IndexedDB Promise 封装（不依赖第三方库）
-// 库名 xingmeng，版本 2，包含两个 objectStore：
+// 库名 xingmeng，版本 3，包含三个 objectStore：
 //  - conversations（keyPath 'id'）
 //  - settings（keyPath 'key'，存 { key, value } 结构）
+//  - pending（keyPath 'id'，存断点续传状态：resumeToken / bodyJson / idemKey / rendered 长度）
 //
 // 容错：若 IndexedDB 不可用（非安全上下文、隐私模式禁用、浏览器限制等），
 // 自动回退到 localStorage（键前缀 xingmeng:<store>:<key>），对外接口保持不变。
@@ -9,7 +10,7 @@ import type { ProviderId } from '../types';
 
 const DB_NAME = 'xingmeng';
 // v2：会话数据结构可能不兼容（历史版本遗留的字段缺失），升级时丢弃旧 store 重建
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const LS_PREFIX = 'xingmeng:';
 
@@ -51,6 +52,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains('pending')) {
+        db.createObjectStore('pending', { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);

@@ -39,6 +39,10 @@ export interface ChatMessage {
   reasoning?: string;
   /** 该消息是否为失败的流式回复（用于显示重试按钮） */
   failed?: boolean;
+  /** 该消息是否正在审核中（用户消息发送时显示审核状态） */
+  moderating?: boolean;
+  /** 该消息是否已通过内容审核（审核通过后显示标签） */
+  moderated?: boolean;
 }
 
 export interface Conversation {
@@ -48,6 +52,14 @@ export interface Conversation {
   model: ProviderId;
   createdAt: number;
   updatedAt: number;
+  /** 断点续传状态：流式中断后持久化，刷新页面后恢复 */
+  pending?: {
+    resumeToken: string;
+    bodyJson: string;
+    idemKey: string;
+    renderedContent: number;
+    renderedReasoning: number;
+  };
 }
 
 /** 思考强度档位（default=跟随模型默认；off=关闭；low/medium/high=开启） */

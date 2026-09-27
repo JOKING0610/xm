@@ -383,7 +383,7 @@ export default function InputBar() {
 
   function handleSend() {
     const trimmed = text.trim();
-    if ((!trimmed && attachments.length === 0) || store.isStreaming || contextFull) return;
+    if ((!trimmed && attachments.length === 0) || store.isStreaming || isModerating || contextFull) return;
     resetInput();
     if (store.activeConversation) {
       void store.sendMessage(trimmed, attachments.length > 0 ? attachments : undefined, {
@@ -436,6 +436,7 @@ export default function InputBar() {
   }
 
   const canSend = text.trim().length > 0 || attachments.length > 0;
+  const isModerating = store.moderating;
 
   return (
     <div className="px-3 py-3 md:px-4">
@@ -582,7 +583,7 @@ export default function InputBar() {
           ) : (
             <button
               onClick={() => handleSend()}
-              disabled={!canSend || contextFull}
+              disabled={!canSend || contextFull || isModerating}
               title="发送（Ctrl+Enter）"
               className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
             >

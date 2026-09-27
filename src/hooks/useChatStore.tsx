@@ -9,7 +9,8 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import type { Attachment, ChatMessage, Conversation, ProviderId, Settings, ThinkingLevel } from '../types';
 import { DEFAULT_PROVIDER, getProvider } from '../config/api';
-import { streamChat } from '../lib/api';
+import { streamChat, resumeChat } from '../lib/api';
+import { createModeration } from '../lib/moderation';
 import { dbAll, dbDelete, dbGet, dbPut } from '../lib/db';
 import { uuid } from '../lib/uuid';
 
@@ -26,6 +27,8 @@ export interface ChatStore {
   /** 回复已完成但尚未查看的会话 id 集合（侧边栏绿色圆点提醒） */
   unreadIds: ReadonlySet<string>;
   streamError: string | null;
+  /** 内容审核中：发送消息时显示"正在审核中"状态 */
+  moderating: boolean;
   newConversation: () => string;
   /** 新建对话行为：已存在空会话则切换过去，否则新建（避免累积多个空白会话） */
   openOrCreateEmpty: () => string;
@@ -39,6 +42,8 @@ export interface ChatStore {
   sendMessage: (text: string, attachments?: Attachment[], opts?: { search?: boolean }) => Promise<void>;
   /** 重试：移除最后一条失败回复，重新发送同一条用户消息 */
   retryConversation: (id: string) => Promise<void>;
+  /** 恢复未完成的回复：凭持久化的 X-Resume-Token 断点续传 */
+  resumeConversation: (id: string) => Promise<void>;
   stop: () => void;
   clearStreamError: () => void;
 }
@@ -97,6 +102,8 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     () => new Set<string>(),
   );
   const [streamError, setStreamError] = useState<string | null>(null);
+  // 内容审核中：发送消息时显示"正在审核中"状态
+  const [moderating, setModerating] = useState(false);
 
   // 竞态防护（React 19 开发模式 effect 双执行）：
   // hydratedRef 标记是否已发起恢复；initRef 标记恢复是否已完成为 true，之后才接受操作。
@@ -318,7 +325,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     void dbPut('settings', { key: 'global', value: next });
   }
 
-  /** 发送消息并触发智能流式回复 */
+  /** 发送消息并触发智能流式回复（发送前自动进行内容审核） */
   async function sendMessage(
     text: string,
     attachments?: Attachment[],
@@ -337,24 +344,78 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       return;
     }
 
-    // 联网搜索：允许模型自主调用搜索工具（结果作为 tool 消息，不进入用户气泡）
+    // 内容审核：发送前自动审核用户输入（文本 + 图片/文件名）
+    // 审核期间在用户消息气泡中显示"正在审核中"状态
+    setModerating(true);
     const now = Date.now();
-    const userMsg: ChatMessage = {
+    // 插入审核中占位消息
+    const moderatingMsg: ChatMessage = {
       id: uuid(),
       role: 'user',
       content: trimmed,
       createdAt: now,
       attachments: attachments && attachments.length > 0 ? attachments : undefined,
+      moderating: true,
     };
-
-    // 首条消息：用其内容生成会话标题（截断到 24 字）
-    const isFirstUserMessage = conv.messages.length === 0;
-    const working: Conversation = {
+    const moderatingConv: Conversation = {
       ...conv,
-      title: isFirstUserMessage ? deriveTitleFromMessage(trimmed) : conv.title,
-      messages: [...conv.messages, userMsg],
+      title: conv.messages.length === 0 ? deriveTitleFromMessage(trimmed) : conv.title,
+      messages: [...conv.messages, moderatingMsg],
       updatedAt: now,
     };
+    setConversations((prev) => prev.map((c) => (c.id === activeId ? moderatingConv : c)));
+
+    try {
+      const provider = getProvider(conv.model);
+      // 收集待审核内容：文本 + 附件文件名
+      const toModerate: string[] = [];
+      if (trimmed) toModerate.push(trimmed);
+      if (attachments && attachments.length > 0) {
+        for (const att of attachments) {
+          if (att.name) toModerate.push(att.name);
+        }
+      }
+      if (toModerate.length > 0) {
+        const modResult = await createModeration(provider, toModerate);
+        const flagged = modResult.results.some((r) => r.flagged);
+        if (flagged) {
+          const categories = modResult.results.flatMap((r) =>
+            Object.entries(r.categories)
+              .filter(([, v]) => v)
+              .map(([k]) => k),
+          );
+          const uniqueCats = [...new Set(categories)];
+          setStreamError(`内容审核未通过：检测到违规内容${uniqueCats.length > 0 ? `（${uniqueCats.join('、')}）` : ''}`);
+          // 移除审核中占位消息
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === activeId
+                ? { ...c, messages: c.messages.filter((m) => m.id !== moderatingMsg.id) }
+                : c,
+            ),
+          );
+          return;
+        }
+      }
+    } catch {
+      // 审核接口异常时降级放行，不阻塞正常对话
+    } finally {
+      setModerating(false);
+    }
+
+    // 审核通过：替换占位消息为真实用户消息（移除 moderating 标记，添加 moderated 标记）
+    const userMsg: ChatMessage = {
+      ...moderatingMsg,
+      moderating: false,
+      moderated: true,
+    };
+    const working: Conversation = {
+      ...moderatingConv,
+      messages: moderatingConv.messages.map((m) =>
+        m.id === moderatingMsg.id ? userMsg : m,
+      ),
+    };
+    setConversations((prev) => prev.map((c) => (c.id === activeId ? working : c)));
     // 会话已含将要发送的 user 消息；runStream 负责追加占位并启动流式
     await runStream(working, { allowSearch: opts?.search });
   }
@@ -434,9 +495,48 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
           mutatePlaceholder((m) => ({ ...m, content: ERROR_BUSY, failed: true }));
           unmarkStreaming(working.id);
         },
+        onStreamStart: (info) => {
+          // 流式开始：持久化断点续传状态，供刷新页面后恢复
+          // 空令牌（媒体结果回放等场景）不提供续传，不持久化
+          if (info.resumeToken && info.resumeToken !== 'rst_') {
+            commit({
+              ...workingCurrent,
+              updatedAt: Date.now(),
+              pending: {
+                resumeToken: info.resumeToken,
+                bodyJson: info.bodyJson,
+                idemKey: info.idemKey,
+                renderedContent: 0,
+                renderedReasoning: 0,
+              },
+            });
+          }
+        },
+        onEvent: (info) => {
+          // 文档建议：每次收到事件时持久化最新令牌，实现无缝续传
+          if (info.resumeToken && info.resumeToken !== 'rst_') {
+            commit({
+              ...workingCurrent,
+              updatedAt: Date.now(),
+              pending: {
+                resumeToken: info.resumeToken,
+                bodyJson: info.bodyJson,
+                idemKey: info.idemKey,
+                renderedContent: workingCurrent.messages.find(
+                  (m) => m.id === placeholder.id,
+                )?.content.length ?? 0,
+                renderedReasoning: workingCurrent.messages.find(
+                  (m) => m.id === placeholder.id,
+                )?.reasoning?.length ?? 0,
+              },
+            });
+          }
+        },
         onDone: () => {
           // 流正常结束：清掉该会话的流式标记与 AbortController
           unmarkStreaming(working.id);
+          // 清除断点续传状态
+          commit({ ...workingCurrent, updatedAt: Date.now(), pending: undefined });
           // 回复完成时用户已切到其它会话 → 侧边栏绿点提醒
           if (working.id !== activeIdRef.current) {
             markUnread(working.id);
@@ -498,6 +598,93 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     await runStream(trimmed);
   }
 
+  /**
+   * 恢复未完成的回复：凭持久化的 X-Resume-Token 断点续传。
+   * 用同键同 body 重发，网关回放已生成内容，客户端按已渲染长度去重。
+   */
+  async function resumeConversation(id: string): Promise<void> {
+    await ensureReady();
+    const conv = conversations.find((c) => c.id === id);
+    if (!conv || !conv.pending) return;
+    const { resumeToken, bodyJson, idemKey, renderedContent, renderedReasoning } = conv.pending;
+
+    // 目标会话非当前活跃 → 切换过去
+    if (id !== activeIdRef.current) {
+      setActiveId(id);
+      setStreamError(null);
+    }
+
+    const placeholder: ChatMessage = {
+      id: uuid(),
+      role: 'assistant',
+      content: '',
+      createdAt: Date.now(),
+    };
+    const working: Conversation = {
+      ...conv,
+      messages: [...conv.messages, placeholder],
+      updatedAt: Date.now(),
+    };
+    setConversations((prev) => prev.map((c) => (c.id === id ? working : c)));
+    setStreamError(null);
+
+    let workingCurrent: Conversation = working;
+    const commit = (c: Conversation) => {
+      workingCurrent = c;
+      patchConversation(c);
+    };
+    const mutatePlaceholder = (fn: (m: ChatMessage) => ChatMessage) =>
+      commit({
+        ...workingCurrent,
+        updatedAt: Date.now(),
+        messages: workingCurrent.messages.map((m) =>
+          m.id === placeholder.id ? fn(m) : m,
+        ),
+      });
+
+    const abort = new AbortController();
+    abortsRef.current.set(id, abort);
+    markStreaming(id);
+
+    try {
+      await resumeChat({
+        provider: getProvider(workingCurrent.model),
+        bodyJson,
+        idemKey,
+        resumeToken,
+        renderedContent,
+        renderedReasoning,
+        signal: abort.signal,
+        onDelta: (d) =>
+          mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
+        onReasoning: (d) =>
+          mutatePlaceholder((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
+        onError: (e) => {
+          void e;
+          setStreamError(ERROR_BUSY);
+          mutatePlaceholder((m) => ({ ...m, content: ERROR_BUSY, failed: true }));
+          unmarkStreaming(id);
+        },
+        onDone: () => {
+          unmarkStreaming(id);
+          if (id !== activeIdRef.current) {
+            markUnread(id);
+          }
+        },
+      });
+    } catch (e) {
+      if (!abort.signal.aborted) {
+        void e;
+        setStreamError(ERROR_BUSY);
+        mutatePlaceholder((m) => ({ ...m, content: ERROR_BUSY, failed: true }));
+        unmarkStreaming(id);
+      }
+    }
+
+    unmarkStreaming(id);
+    patchConversation(workingCurrent);
+  }
+
   /** 中止当前活跃会话的流（不影响其它会话的流） */
   function stop(): void {
     if (!activeId) return;
@@ -527,6 +714,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     streamingIds,
     unreadIds,
     streamError,
+    moderating,
     newConversation,
     openOrCreateEmpty,
     selectConversation,
@@ -536,6 +724,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     setThinkingLevel,
     sendMessage,
     retryConversation,
+    resumeConversation,
     stop,
     clearStreamError,
   };

@@ -184,6 +184,18 @@ export default function ChatView({
               </button>
             </div>
           )}
+          {conv?.pending && !store.isStreaming && (
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => void store.resumeConversation(conv.id)}
+                className="flex items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-1.5 text-[13px] text-blue-600 transition-colors hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-400 dark:hover:bg-blue-500/20"
+              >
+                <i className="fa-solid fa-rotate-left text-xs" />
+                恢复未完成的回复
+              </button>
+            </div>
+          )}
           {!conv || conv.messages.length === 0 ? (
             // 无活跃会话或会话为空（尚未发送消息）：显示背景头像与打字机欢迎语
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">

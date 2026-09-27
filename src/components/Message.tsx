@@ -124,13 +124,26 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
   if (message.role === 'user') {
     const hasAttachments = !!message.attachments && message.attachments.length > 0;
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-blue-600 px-4 py-2.5 text-[15px] leading-relaxed text-white shadow-sm">
           {hasAttachments && <AttachmentsGrid items={message.attachments!} />}
           {message.content && (
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
           )}
         </div>
+        {/* 审核状态标签：气泡下方显示 */}
+        {message.moderating && (
+          <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-500 dark:text-amber-400">
+            <i className="fa-solid fa-shield-halved fa-pulse" />
+            <span>审核中</span>
+          </div>
+        )}
+        {message.moderated && !message.moderating && (
+          <div className="mt-1 flex items-center gap-1 text-[11px] text-green-500 dark:text-green-400">
+            <i className="fa-solid fa-circle-check" />
+            <span>审核通过</span>
+          </div>
+        )}
       </div>
     );
   }
