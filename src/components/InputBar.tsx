@@ -448,24 +448,28 @@ export default function InputBar() {
             level={store.settings.thinkingLevel ?? 'default'}
             onChange={store.setThinkingLevel}
           />
-          {/* 联网搜索：胶囊开关（状态仅由内嵌迷你开关指示，按钮本身不染色） */}
+          {/* 联网搜索：胶囊开关（开启时整体染色） */}
           <button
             type="button"
             onClick={() => setSearchEnabled((v) => !v)}
             title={searchEnabled ? '联网搜索：已开启' : '联网搜索：已关闭'}
             aria-pressed={searchEnabled}
-            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-400"
+            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+              searchEnabled
+                ? 'border-blue-500 bg-blue-500 text-white shadow-sm shadow-blue-500/25 hover:bg-blue-600 hover:shadow-blue-500/40 active:scale-95'
+                : 'border-blue-100 bg-white text-slate-500 hover:bg-blue-50 hover:text-blue-600 active:scale-95 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-400'
+            }`}
           >
             <i className="fa-solid fa-earth-asia" />
             联网搜索
             {/* 迷你开关：底色指示状态（蓝=开 / 灰=关），滑块始终白色 */}
             <span
-              className={`ml-1 flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors ${
-                searchEnabled ? 'bg-blue-500' : 'bg-slate-200'
+              className={`ml-1 flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors duration-200 ${
+                searchEnabled ? 'bg-white/30' : 'bg-slate-200 dark:bg-slate-600'
               }`}
             >
               <span
-                className={`size-3 rounded-full bg-white shadow transition-transform ${
+                className={`size-3 rounded-full bg-white shadow-md transition-transform duration-200 ${
                   searchEnabled ? 'translate-x-2.5' : 'translate-x-0'
                 }`}
               />
