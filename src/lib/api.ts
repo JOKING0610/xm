@@ -63,20 +63,74 @@ export function newIdempotencyKey(): string {
   return uuid();
 }
 
+/** 文本类文件扩展名集合（这些文件的内容可被读取并发送给模型） */
+const TEXT_FILE_EXTS = new Set([
+  'txt', 'md', 'markdown', 'json', 'csv', 'tsv', 'js', 'jsx', 'ts', 'tsx',
+  'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'go', 'rs', 'rb', 'php',
+  'html', 'htm', 'css', 'scss', 'less', 'xml', 'yaml', 'yml', 'toml',
+  'ini', 'cfg', 'conf', 'sh', 'bash', 'zsh', 'ps1', 'bat', 'cmd',
+  'sql', 'r', 'swift', 'kt', 'kts', 'scala', 'lua', 'pl', 'pm',
+  'dockerfile', 'makefile', 'cmake', 'gradle', 'vue', 'svelte',
+  'log', 'diff', 'patch', 'tex', 'bib', 'rst', 'adoc', 'org',
+]);
+
+/** 判断文件是否为文本类文件（基于扩展名） */
+function isTextFile(filename: string, mime: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  if (TEXT_FILE_EXTS.has(ext)) return true;
+  // 无扩展名时根据 MIME 类型判断
+  if (mime.startsWith('text/')) return true;
+  if (mime === 'application/json') return true;
+  if (mime === 'application/xml') return true;
+  if (mime === 'application/javascript') return true;
+  if (mime === 'application/typescript') return true;
+  return false;
+}
+
+/** 从 dataURL 中提取 base64 内容 */
+function dataUrlToBase64(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',');
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+}
+
+/** 读取文本文件内容（限制最大 100KB 防止超长） */
+async function readTextFileContent(
+  dataUrl: string,
+  maxSize = 100 * 1024,
+): Promise<string> {
+  try {
+    const base64 = dataUrlToBase64(dataUrl);
+    const binary = atob(base64);
+    if (binary.length > maxSize) {
+      const truncated = binary.slice(0, maxSize);
+      const content = new TextDecoder('utf-8', { fatal: false }).decode(
+        Uint8Array.from(truncated, (c) => c.charCodeAt(0)),
+      );
+      return `${content}\n\n[文件内容已截断，原文件超过 100KB]`;
+    }
+    return new TextDecoder('utf-8', { fatal: false }).decode(
+      Uint8Array.from(binary, (c) => c.charCodeAt(0)),
+    );
+  } catch {
+    return '[无法读取文件内容]';
+  }
+}
+
 /**
  * 把"用户消息 + 附件"转成 OpenAI 兼容的 content：
  *  - 仅文本：content 为字符串
  *  - 含图片：content 为数组，含一个 text 段 + N 个 image_url 段
- *  - 其它文件：把文件名/大小写进文本提示（多数 LLM 不直接消费二进制），保留前端附件预览
+ *  - 文本文件：读取文件内容并包含在消息中
+ *  - 其它二进制文件：把文件名/大小写进文本提示（多数 LLM 不直接消费二进制）
  *
  * 注意：网关要求多模态数组必须含 text 段——只有 image_url（用户只发图、无文字）
  * 会被判「无效的请求参数」400，且该消息进入历史后会让整个会话持续 400。
  * 故此处对"有图无文"补一个中性 text 段。
  */
-function buildMessageContent(
+async function buildMessageContent(
   text: string,
   attachments?: Attachment[],
-): string | Array<Record<string, unknown>> {
+): Promise<string | Array<Record<string, unknown>>> {
   const images = attachments?.filter((a) => a.kind === 'image') ?? [];
   const files = attachments?.filter((a) => a.kind === 'file') ?? [];
 
@@ -87,8 +141,32 @@ function buildMessageContent(
   const parts: Array<Record<string, unknown>> = [];
   let headerText = text;
   if (files.length > 0) {
-    const fileLines = files.map((f) => `- ${f.name} (${f.mime}, ${formatSize(f.size)})`);
-    headerText = `${text}\n\n[附件文件]\n${fileLines.join('\n')}`;
+    // 分离文本文件与二进制文件
+    const textFiles = files.filter((f) => isTextFile(f.name, f.mime));
+    const binaryFiles = files.filter((f) => !isTextFile(f.name, f.mime));
+
+    // 读取文本文件内容
+    const textContents: string[] = [];
+    for (const f of textFiles) {
+      const content = await readTextFileContent(f.dataUrl);
+      textContents.push(`[文件: ${f.name}]\n${content}`);
+    }
+
+    // 二进制文件只显示元信息
+    const binaryLines = binaryFiles.map(
+      (f) => `- ${f.name} (${f.mime}, ${formatSize(f.size)})`,
+    );
+
+    // 组装消息
+    const sections: string[] = [];
+    if (text) sections.push(text);
+    if (textContents.length > 0) {
+      sections.push(`\n\n[附件文件内容]\n${textContents.join('\n\n---\n\n')}`);
+    }
+    if (binaryLines.length > 0) {
+      sections.push(`\n\n[二进制附件]\n${binaryLines.join('\n')}`);
+    }
+    headerText = sections.join('');
   }
   if (headerText || images.length > 0) {
     parts.push({ type: 'text', text: headerText || '请看图片。' });
@@ -265,10 +343,12 @@ export async function streamChat(opts: {
   // 系统提示词始终作为第一条消息；历史消息同步保留（含 assistant 空占位）
   const apiMessages = [
     { role: 'system' as const, content: SYSTEM_PROMPT },
-    ...messages.map((m) => ({
-      role: m.role,
-      content: buildMessageContent(m.content, m.attachments),
-    })),
+    ...(await Promise.all(
+      messages.map(async (m) => ({
+        role: m.role,
+        content: await buildMessageContent(m.content, m.attachments),
+      })),
+    )),
   ];
 
   // 构造请求体：每次都附加随机 user nonce，规避网关对"相同 body"的幂等判重

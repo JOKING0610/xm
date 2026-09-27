@@ -33,6 +33,13 @@ function ThinkingBlock({
     }
   }, [reasoning]);
 
+  // 模型回复结束后自动收起思考过程
+  useEffect(() => {
+    if (!isStreaming && expanded) {
+      setExpanded(false);
+    }
+  }, [isStreaming, expanded]);
+
   return (
     <div className="mb-2 overflow-hidden rounded-xl bg-blue-50/70 ring-1 ring-blue-100/70 dark:bg-slate-900/60 dark:ring-slate-700/60">
       <button
