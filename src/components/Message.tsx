@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import type { Attachment, ChatMessage } from '../types';
 import Markdown from './Markdown';
 import ImageLightbox from './ImageLightbox';
@@ -23,6 +23,16 @@ function ThinkingBlock({
 }) {
   const [expanded, setExpanded] = useState(true);
   const thinking = isStreaming && isWaitingContent;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 思考过程内部自动滚动到底部
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [reasoning]);
+
   return (
     <div className="mb-2 overflow-hidden rounded-xl bg-blue-50/70 ring-1 ring-blue-100/70 dark:bg-slate-900/60 dark:ring-slate-700/60">
       <button
@@ -53,7 +63,10 @@ function ThinkingBlock({
         )}
       </button>
       {expanded && (
-        <div className="border-t border-blue-100/60 px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words text-slate-500 dark:border-slate-700/60 dark:text-white/85">
+        <div
+          ref={scrollRef}
+          className="max-h-64 overflow-y-auto overscroll-contain border-t border-blue-100/60 px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words text-slate-500 dark:border-slate-700/60 dark:text-white/85"
+        >
           {reasoning}
           {thinking && <span className="streaming-caret" aria-hidden="true" />}
         </div>
