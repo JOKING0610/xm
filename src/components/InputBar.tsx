@@ -471,6 +471,14 @@ export default function InputBar() {
               />
             </span>
           </button>
+          {/* 上下文已用/总量显示 */}
+          <div className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <i className="fa-solid fa-database text-[10px]" />
+            <span>上下文</span>
+            <span>{totalChars.toLocaleString()}</span>
+            <span className="text-slate-400 dark:text-slate-500">/</span>
+            <span>{MAX_CONTEXT_CHARS.toLocaleString()}</span>
+          </div>
         </div>
 
         {contextFull && (

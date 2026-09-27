@@ -134,7 +134,7 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
         {/* 审核状态标签：气泡下方显示 */}
         {message.moderating && (
           <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-500 dark:text-amber-400">
-            <i className="fa-solid fa-shield-halved fa-pulse" />
+            <i className="fa-solid fa-shield-halved" />
             <span>审核中</span>
           </div>
         )}
