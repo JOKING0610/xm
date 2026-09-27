@@ -11,7 +11,7 @@ interface MessageProps {
 }
 
 /** 思考过程块：可折叠；流式思考中默认展开并带呼吸点，完成后可收折 */
-function ThinkingBlock({
+export function ThinkingBlock({
   reasoning,
   isStreaming,
   isWaitingContent,
@@ -33,12 +33,12 @@ function ThinkingBlock({
     }
   }, [reasoning]);
 
-  // 模型回复结束后自动收起思考过程
+  // 模型回复结束后自动收起思考过程（仅在流式边沿触发，不干扰用户手动展开）
   useEffect(() => {
-    if (!isStreaming && expanded) {
+    if (!isStreaming) {
       setExpanded(false);
     }
-  }, [isStreaming, expanded]);
+  }, [isStreaming]);
 
   return (
     <div className="mb-2 overflow-hidden rounded-xl bg-blue-50/70 ring-1 ring-blue-100/70 dark:bg-slate-900/60 dark:ring-slate-700/60">
