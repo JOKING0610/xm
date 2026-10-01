@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react';
 import type { Attachment, ThinkingLevel } from '../types';
 import { uuid } from '../lib/uuid';
+import { isImageFile, isImageFileMeta } from '../lib/attachment';
 import {
   useChatStore,
   ERROR_BUSY,
@@ -9,6 +10,7 @@ import {
   CONTEXT_FULL_MSG,
 } from '../hooks/useChatStore';
 import ImageLightbox from './ImageLightbox';
+import UsageModal from './UsageModal';
 
 /** 思考强度选项（菜单内仅显示档位名，前缀"思考："由按钮单独拼接） */
 const THINKING_OPTIONS: Array<{ value: ThinkingLevel; label: string }> = [
@@ -225,20 +227,44 @@ async function readFilesAsAttachments(
 ): Promise<Attachment[]> {
   const list = Array.from(files);
   const result: Attachment[] = [];
+  // DeepSeek 图像理解限制：单图（base64 内联）最大 32 MiB；多图累计（含 base64 膨胀）不超过请求体 48 MiB，
+  // 此处按 dataURL 字节数预留膨胀余量，累计上限 34 MiB
+  const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+  const MAX_TOTAL_IMAGE_BYTES = 34 * 1024 * 1024;
+  // 官方支持格式（由文件实际内容判断）：JPEG、PNG、GIF、WebP
+  const ALLOWED_IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+  let totalImageBytes = 0;
   for (const f of list) {
-    if (kind === 'file' && f.size > MAX_FILE_BYTES) {
+    // "上传文件"入口选中图片 → 统一按图片逻辑处理（压缩 + 校验 + kind:'image'，
+    // 走 Vision 让模型可直接查看；避免大图原样入库导致卡顿）
+    const asImage = kind === 'image' || isImageFile(f);
+    if (!asImage && f.size > MAX_FILE_BYTES) {
       throw new Error(
         `文件过大：${f.name}（${(f.size / 1024 / 1024).toFixed(2)} MB 上限 ${(MAX_FILE_BYTES / 1024 / 1024).toFixed(0)} MB）`,
       );
     }
-    if (kind === 'image') {
-      // 图片：不限制原始大小，前端统一压缩
+    if (asImage) {
+      // 图片：不限制原始大小，前端统一压缩后再按官方限制校验
       onCompress?.(f.name, true);
       try {
         const { dataUrl, mime, size, originalSize } = await compressImage(f);
+        if (!ALLOWED_IMAGE_MIME.has(mime)) {
+          throw new Error(
+            `不支持的图片格式：${f.name}（仅支持 JPEG、PNG、GIF、WebP）`,
+          );
+        }
+        if (size > MAX_IMAGE_BYTES) {
+          throw new Error(
+            `图片过大：${f.name}（压缩后 ${(size / 1024 / 1024).toFixed(2)} MB，单图上限 32 MB）`,
+          );
+        }
+        if (totalImageBytes + size > MAX_TOTAL_IMAGE_BYTES) {
+          throw new Error('图片总大小超出限制（单次发送累计上限约 34 MB），请分批发送');
+        }
+        totalImageBytes += size;
         result.push({
           id: uuid(),
-          kind,
+          kind: 'image',
           name: f.name,
           mime,
           dataUrl,
@@ -279,7 +305,8 @@ function AttachmentPreview({
   onRemove: (id: string) => void;
 }): ReactNode {
   const [zoomed, setZoomed] = useState(false);
-  const isImage = att.kind === 'image';
+  // 图片（含历史 file-kind 图片）按缩略图展示，其余为文件卡片
+  const isImage = att.kind === 'image' || isImageFileMeta(att.mime, att.name);
   // 仅显示原文件大小（压缩前），若未压缩则与当前一致
   const displaySize = isImage ? (att.originalSize ?? att.size) : att.size;
   return (
@@ -332,6 +359,8 @@ export default function InputBar() {
   const [compressing, setCompressing] = useState<{ key: string; name: string }[]>([]);
   // 联网搜索开关：开启后发送前先联网搜索再回复
   const [searchEnabled, setSearchEnabled] = useState(false);
+  // 今日用量模态框开关
+  const [usageModalOpen, setUsageModalOpen] = useState(false);
   // 待发送内容：无当前会话时先新建会话，待会话激活后由 effect 发送
   const [pending, setPending] = useState<{
     text: string;
@@ -475,14 +504,19 @@ export default function InputBar() {
               />
             </span>
           </button>
-          {/* 上下文已用/总量显示 */}
-          <div className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          {/* 上下文已用/总量显示（点击打开今日用量模态框） */}
+          <button
+            type="button"
+            onClick={() => setUsageModalOpen(true)}
+            title="查看今日用量"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-blue-300 hover:text-blue-600 active:scale-95 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-blue-500/50 dark:hover:text-blue-400"
+          >
             <i className="fa-solid fa-database text-[10px]" />
             <span>上下文</span>
             <span>{totalChars.toLocaleString()}</span>
             <span className="text-slate-400 dark:text-slate-500">/</span>
             <span>{MAX_CONTEXT_CHARS.toLocaleString()}</span>
-          </div>
+          </button>
         </div>
 
         {contextFull && (
@@ -604,6 +638,7 @@ export default function InputBar() {
           )}
         </div>
       </div>
+      <UsageModal open={usageModalOpen} onClose={() => setUsageModalOpen(false)} />
     </div>
   );
 }

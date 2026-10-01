@@ -1,4 +1,4 @@
-// 云智API 内容审核接口封装
+// 内容审核接口封装（OpenAI 兼容 /moderations；提供方可声明不支持以跳过）
 import type { ProviderMeta } from '../types';
 import { newIdempotencyKey } from './api';
 
@@ -29,12 +29,21 @@ export interface ModerationResponse {
   results: ModerationResult[];
 }
 
-/** 内容审核：检测文本是否包含违规内容（不计费） */
+/** 提供方不支持审核端点时的放行结果（避免向不存在的端点发请求产生 404） */
+const PASSTHROUGH_RESULT: ModerationResponse = {
+  id: 'passthrough',
+  model: 'none',
+  results: [{ flagged: false, categories: {}, category_scores: {} }],
+};
+
+/** 内容审核：检测文本是否包含违规内容（不计费）；提供方未提供审核端点时直接放行 */
 export async function createModeration(
   provider: ProviderMeta,
   input: string | string[],
   opts?: { model?: string; signal?: AbortSignal },
 ): Promise<ModerationResponse> {
+  if (provider.moderationSupported === false) return PASSTHROUGH_RESULT;
+
   const maxRetries = 5;
   let res: Response | null = null;
 

@@ -1,16 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useChatStore } from '../hooks/useChatStore';
+import { downloadApk } from '../lib/apk';
 import Message from './Message';
 import InputBar from './InputBar';
-
-/**
- * 安装包地址：阿里云 OSS 默认域名禁止分发以 .apk 命名的文件（响应头 Content-Disposition 中出现 .apk 同样会被拦截），
- * 因此对象以 .bin 后缀存储，由前端取回后重命名为 .apk 再保存。
- */
-const APK_URL =
-  'https://joking-renwu.oss-cn-guangzhou.aliyuncs.com/xingmeng-2609251-release.bin';
-/** 安装包另存到本地时使用的文件名 */
-const APK_NAME = '星梦2609251正式版.apk';
 
 /**
  * 空会话欢迎语的打字机效果：
@@ -83,29 +75,12 @@ export default function ChatView({
     nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }
 
-  /**
-   * 下载安装包：取回 OSS 上的 .bin 对象，以 .apk 文件名另存到本地。
-   * 依赖 Bucket 的 CORS 规则允许本站跨域 GET；失败时兜底跳转原始地址（拿到的是 .bin，需手动改后缀）。
-   */
-  async function downloadApk(): Promise<void> {
+  /** 下载安装包（共享实现见 lib/apk.ts）：下载期间按钮显示进度并禁用 */
+  async function handleDownloadApk(): Promise<void> {
     if (downloading) return;
     setDownloading(true);
     try {
-      const res = await fetch(APK_URL);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = APK_NAME;
-      // 部分浏览器要求锚点在文档中才响应 click()，点击后立即移除
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // 等浏览器接管下载后再释放内存
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    } catch {
-      window.location.href = APK_URL;
+      await downloadApk();
     } finally {
       setDownloading(false);
     }
@@ -148,7 +123,7 @@ export default function ChatView({
         {/* 下载 App：按钮触发取回安装包并以 .apk 文件名保存（详见 APK_URL 注释） */}
         <button
           type="button"
-          onClick={() => void downloadApk()}
+          onClick={() => void handleDownloadApk()}
           disabled={downloading}
           title="下载 App"
           aria-label="下载 App"

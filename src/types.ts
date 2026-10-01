@@ -1,7 +1,7 @@
 // 全局共享类型定义（各模块的公共契约）
 
 /** 内置 API 提供方标识 */
-export type ProviderId = 'glm';
+export type ProviderId = 'deepseek';
 
 /** 提供方配置（baseURL + key + 默认模型） */
 export interface ProviderMeta {
@@ -10,6 +10,8 @@ export interface ProviderMeta {
   baseURL: string;
   apiKey: string;
   model: string;
+  /** 提供方是否提供内容审核端点（缺省视为支持；false 时跳过审核请求直接放行） */
+  moderationSupported?: boolean;
 }
 
 export type ChatRole = 'user' | 'assistant';

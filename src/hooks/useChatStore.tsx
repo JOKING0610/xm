@@ -12,6 +12,7 @@ import { DEFAULT_PROVIDER, getProvider } from '../config/api';
 import { streamChat, resumeChat } from '../lib/api';
 import { createModeration } from '../lib/moderation';
 import { dbAll, dbDelete, dbGet, dbPut } from '../lib/db';
+import { addTodayTokens, getTodayUsage, todayKey, DAILY_TOKEN_LIMIT, type DailyUsage } from '../lib/usage';
 import { uuid } from '../lib/uuid';
 
 /** 会话 store 对外暴露的接口 */
@@ -29,6 +30,14 @@ export interface ChatStore {
   streamError: string | null;
   /** 内容审核中：发送消息时显示"正在审核中"状态 */
   moderating: boolean;
+  /** 每日用量上限弹窗是否打开 */
+  limitModalOpen: boolean;
+  /** 关闭每日用量上限弹窗 */
+  closeLimitModal: () => void;
+  /** 今日 Token 用量（模态框展示用） */
+  todayUsage: DailyUsage;
+  /** 每日 Token 上限常量 */
+  dailyTokenLimit: number;
   newConversation: () => string;
   /** 新建对话行为：已存在空会话则切换过去，否则新建（避免累积多个空白会话） */
   openOrCreateEmpty: () => string;
@@ -104,6 +113,12 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
   const [streamError, setStreamError] = useState<string | null>(null);
   // 内容审核中：发送消息时显示"正在审核中"状态
   const [moderating, setModerating] = useState(false);
+  // 每日 Token 用量限制：弹窗状态 + 今日用量
+  const [limitModalOpen, setLimitModalOpen] = useState(false);
+  const [todayUsage, setTodayUsage] = useState<DailyUsage>(() => ({
+    date: todayKey(),
+    tokens: 0,
+  }));
 
   // 竞态防护（React 19 开发模式 effect 双执行）：
   // hydratedRef 标记是否已发起恢复；initRef 标记恢复是否已完成为 true，之后才接受操作。
@@ -127,10 +142,12 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       // 恢复出的模型（供自动新建会话使用；setSettings 是异步的，闭包里拿不到新值）
       let recoveredModel: ProviderId = DEFAULT_PROVIDER;
       try {
-        const [rawConvs, st] = await Promise.all([
+        const [rawConvs, st, usage] = await Promise.all([
           dbAll<Conversation>('conversations'),
           dbGet<{ key: 'global'; value: Settings }>('settings', 'global'),
+          getTodayUsage(),
         ]);
+        setTodayUsage(usage);
         // 归一化恢复的数据：防御历史/异常记录（缺字段、无效 id）避免渲染崩溃
         const normalized: Conversation[] = (rawConvs ?? [])
           .filter((c) => c && typeof c.id === 'string' && c.id !== '')
@@ -167,9 +184,33 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
         // 打开页面：自动创建新会话并切换至该新会话（空白不落盘，刷新后重新创建）
         // 传 recoveredModel：此时 settings 闭包仍是初始值，须显式带上恢复的模型
         newConversation(recoveredModel);
+        // 每次打开页面：自动弹出用量限制提醒（提示限额并引导下载 App）
+        setLimitModalOpen(true);
       }
     })();
   }, []);
+
+  /** 每日用量是否已达上限（state 里的记录非今天则视为 0，跨天自动放行） */
+  function exceedsDailyLimit(): boolean {
+    return todayUsage.date === todayKey() && todayUsage.tokens >= DAILY_TOKEN_LIMIT;
+  }
+
+  /** 达到每日上限：打开提醒弹窗并返回 true（调用方据此拦截发送） */
+  function blockByDailyLimit(): boolean {
+    if (!exceedsDailyLimit()) return false;
+    setLimitModalOpen(true);
+    return true;
+  }
+
+  /** 累计一次响应的 Token 用量（流尾 usage 回调） */
+  function handleUsage(u: { total_tokens: number }): void {
+    if (!Number.isFinite(u.total_tokens) || u.total_tokens <= 0) return;
+    void addTodayTokens(u.total_tokens).then((next) => setTodayUsage(next));
+  }
+
+  function closeLimitModal(): void {
+    setLimitModalOpen(false);
+  }
 
   /** 把会话 id 加入流式集合（不可变更新） */
   function markStreaming(id: string): void {
@@ -192,6 +233,13 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     abortsRef.current.delete(id);
   }
 
+  // 流式期间的持久化节流：onDelta/onReasoning/onEvent 每帧 dbPut 全量会话
+  // （含附件 base64 的结构化克隆）会阻塞主线程导致回复时页面严重卡顿。
+  // 高频路径只更新内存并按 800ms trailing 合并写库；流结束时的 patchConversation
+  // （persist 默认 true）立即落盘并取消待写定时器，保证最终状态不丢。
+  const persistTimersRef = useRef<Map<string, number>>(new Map());
+  const pendingPersistRef = useRef<Map<string, Conversation>>(new Map());
+
   /** 智能持久化：空白会话不入库；非空白才 dbPut。
    *  空白但存在于 db 中（历史遗留）则顺手清除，避免脏数据。 */
   function safePersist(conv: Conversation): void {
@@ -202,12 +250,40 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     }
   }
 
-  /** 在内存中更新并按需持久化单个会话 */
-  function patchConversation(conv: Conversation): void {
+  /** 取消某会话的待写节流（立即持久化前调用，避免定时器稍后重复写） */
+  function cancelScheduledPersist(id: string): void {
+    const timer = persistTimersRef.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      persistTimersRef.current.delete(id);
+    }
+    pendingPersistRef.current.delete(id);
+  }
+
+  /** 节流合并写：800ms 静默后落盘一次（多次调用只保留最新会话快照） */
+  function schedulePersist(conv: Conversation): void {
+    pendingPersistRef.current.set(conv.id, conv);
+    if (persistTimersRef.current.has(conv.id)) return;
+    const timer = window.setTimeout(() => {
+      persistTimersRef.current.delete(conv.id);
+      const pending = pendingPersistRef.current.get(conv.id);
+      pendingPersistRef.current.delete(conv.id);
+      if (pending) safePersist(pending);
+    }, 800);
+    persistTimersRef.current.set(conv.id, timer);
+  }
+
+  /** 在内存中更新并按需持久化单个会话；persist=false 走节流（流式高频路径） */
+  function patchConversation(conv: Conversation, opts?: { persist?: boolean }): void {
     setConversations((prev) =>
       prev.map((c) => (c.id === conv.id ? conv : c)),
     );
-    safePersist(conv);
+    if (opts?.persist === false) {
+      schedulePersist(conv);
+    } else {
+      cancelScheduledPersist(conv.id);
+      safePersist(conv);
+    }
   }
 
   /** 等待初始化完成 */
@@ -285,6 +361,8 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       ctrl.abort();
       unmarkStreaming(id);
     }
+    // 取消该会话的待写节流，避免删除后定时器把记录写回
+    cancelScheduledPersist(id);
     void dbDelete('conversations', id);
     setConversations((prev) => prev.filter((c) => c.id !== id));
     setActiveId((prev) => (prev === id ? null : prev));
@@ -337,6 +415,9 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
 
     const conv = conversations.find((c) => c.id === activeId);
     if (!conv) return;
+
+    // 每日 Token 用量上限：已达上限禁止发送，弹窗提醒并引导下载 App
+    if (blockByDailyLimit()) return;
 
     // 上下文上限：已达上限禁止继续发送
     if (contextChars(conv) >= MAX_CONTEXT_CHARS) {
@@ -428,6 +509,8 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     seed: Conversation,
     extra?: { allowSearch?: boolean },
   ): Promise<void> {
+    // 每日用量上限（覆盖 sendMessage 之后、retry 等所有经此启动的流）
+    if (blockByDailyLimit()) return;
     const now = Date.now();
     const placeholder: ChatMessage = {
       id: uuid(),
@@ -446,21 +529,24 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     // 流式过程中会话的最新引用（供 onDelta 累加与最终保存；闭包内共享）
     let workingCurrent: Conversation = working;
 
-    // 提交最新会话：更新 ref + 内存态 + db 持久化（此时已非空白，会真正落盘）
-    const commit = (c: Conversation) => {
+    // 提交最新会话：更新 ref + 内存态；persist=false 走节流写库（高频路径）
+    const commit = (c: Conversation, persist = true) => {
       workingCurrent = c;
-      patchConversation(c);
+      patchConversation(c, { persist });
     };
 
-    // 对占位消息做追加/替换
+    // 对占位消息做追加/替换（流式高频：仅更新内存，持久化交给节流）
     const mutatePlaceholder = (fn: (m: ChatMessage) => ChatMessage) =>
-      commit({
-        ...workingCurrent,
-        updatedAt: Date.now(),
-        messages: workingCurrent.messages.map((m) =>
-          m.id === placeholder.id ? fn(m) : m,
-        ),
-      });
+      commit(
+        {
+          ...workingCurrent,
+          updatedAt: Date.now(),
+          messages: workingCurrent.messages.map((m) =>
+            m.id === placeholder.id ? fn(m) : m,
+          ),
+        },
+        false,
+      );
 
     // 请求历史：排除空占位与失败的占位消息，其余按顺序
     // 仅用户消息可能含 attachments；助手消息不带图
@@ -488,6 +574,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
           mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
         onReasoning: (d) =>
           mutatePlaceholder((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
+        onUsage: handleUsage,
         onError: (e) => {
           // 对外统一文案，不暴露底层错误细节；标记失败以显示重试按钮
           void e;
@@ -499,37 +586,44 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
           // 流式开始：持久化断点续传状态，供刷新页面后恢复
           // 空令牌（媒体结果回放等场景）不提供续传，不持久化
           if (info.resumeToken && info.resumeToken !== 'rst_') {
-            commit({
-              ...workingCurrent,
-              updatedAt: Date.now(),
-              pending: {
-                resumeToken: info.resumeToken,
-                bodyJson: info.bodyJson,
-                idemKey: info.idemKey,
-                renderedContent: 0,
-                renderedReasoning: 0,
+            commit(
+              {
+                ...workingCurrent,
+                updatedAt: Date.now(),
+                pending: {
+                  resumeToken: info.resumeToken,
+                  bodyJson: info.bodyJson,
+                  idemKey: info.idemKey,
+                  renderedContent: 0,
+                  renderedReasoning: 0,
+                },
               },
-            });
+              false,
+            );
           }
         },
         onEvent: (info) => {
           // 文档建议：每次收到事件时持久化最新令牌，实现无缝续传
+          // 高频事件：内存即时更新、写库走节流合并，避免每帧序列化全量会话卡顿
           if (info.resumeToken && info.resumeToken !== 'rst_') {
-            commit({
-              ...workingCurrent,
-              updatedAt: Date.now(),
-              pending: {
-                resumeToken: info.resumeToken,
-                bodyJson: info.bodyJson,
-                idemKey: info.idemKey,
-                renderedContent: workingCurrent.messages.find(
-                  (m) => m.id === placeholder.id,
-                )?.content.length ?? 0,
-                renderedReasoning: workingCurrent.messages.find(
-                  (m) => m.id === placeholder.id,
-                )?.reasoning?.length ?? 0,
+            commit(
+              {
+                ...workingCurrent,
+                updatedAt: Date.now(),
+                pending: {
+                  resumeToken: info.resumeToken,
+                  bodyJson: info.bodyJson,
+                  idemKey: info.idemKey,
+                  renderedContent: workingCurrent.messages.find(
+                    (m) => m.id === placeholder.id,
+                  )?.content.length ?? 0,
+                  renderedReasoning: workingCurrent.messages.find(
+                    (m) => m.id === placeholder.id,
+                  )?.reasoning?.length ?? 0,
+                },
               },
-            });
+              false,
+            );
           }
         },
         onDone: () => {
@@ -604,6 +698,8 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
    */
   async function resumeConversation(id: string): Promise<void> {
     await ensureReady();
+    // 每日用量上限：达限后禁止恢复生成（等同向模型发送请求）
+    if (blockByDailyLimit()) return;
     const conv = conversations.find((c) => c.id === id);
     if (!conv || !conv.pending) return;
     const { resumeToken, bodyJson, idemKey, renderedContent, renderedReasoning } = conv.pending;
@@ -629,18 +725,22 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     setStreamError(null);
 
     let workingCurrent: Conversation = working;
-    const commit = (c: Conversation) => {
+    const commit = (c: Conversation, persist = true) => {
       workingCurrent = c;
-      patchConversation(c);
+      patchConversation(c, { persist });
     };
+    // 流式高频：仅更新内存，持久化走节流（与 runStream 一致）
     const mutatePlaceholder = (fn: (m: ChatMessage) => ChatMessage) =>
-      commit({
-        ...workingCurrent,
-        updatedAt: Date.now(),
-        messages: workingCurrent.messages.map((m) =>
-          m.id === placeholder.id ? fn(m) : m,
-        ),
-      });
+      commit(
+        {
+          ...workingCurrent,
+          updatedAt: Date.now(),
+          messages: workingCurrent.messages.map((m) =>
+            m.id === placeholder.id ? fn(m) : m,
+          ),
+        },
+        false,
+      );
 
     const abort = new AbortController();
     abortsRef.current.set(id, abort);
@@ -659,6 +759,7 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
           mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
         onReasoning: (d) =>
           mutatePlaceholder((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
+        onUsage: handleUsage,
         onError: (e) => {
           void e;
           setStreamError(ERROR_BUSY);
@@ -715,6 +816,10 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     unreadIds,
     streamError,
     moderating,
+    limitModalOpen,
+    closeLimitModal,
+    todayUsage,
+    dailyTokenLimit: DAILY_TOKEN_LIMIT,
     newConversation,
     openOrCreateEmpty,
     selectConversation,

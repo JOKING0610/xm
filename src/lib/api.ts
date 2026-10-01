@@ -4,24 +4,36 @@ import type { Attachment, ChatRole, ProviderMeta, ThinkingLevel } from '../types
 import { searchWeb, formatSearchResult } from './search';
 import type { SearchOptions } from './search';
 import { uuid } from './uuid';
+import { createDsmlSanitizer } from './sanitize';
 
-/** 联网搜索工具定义（供模型自行决定是否调用） */
+/** 联网搜索工具定义（供模型自行决定是否调用）——OpenAI 标准 function 格式，name/description/parameters 嵌套于 function 字段 */
 const WEB_SEARCH_TOOL = {
   type: 'function' as const,
-  name: 'web_search',
-  description:
-    '联网搜索工具，用于获取最新、实时、可核实的真实信息。只要用户提问涉及具体事实、数据、统计、时间、日期、价格、榜单、新闻、事件动态、人物、地点、产品、政策等需要确认真实性或时效性的内容，或你的记忆可能过时、不准确、不完整，都应主动调用本工具核实后再作答，而不是凭自己的内部知识直接回答。搜索完成后，必须以下方【联网搜索结果】为准整理回答：优先采信其中的事实、数字与时间并注明来源；若结果信息不足，如实说明（如"未找到相关资料"），不得凭记忆或猜测编造。',
-  parameters: {
-    type: 'object',
-    properties: {
-      query: { type: 'string', description: '搜索关键词' },
+  function: {
+    name: 'web_search',
+    description:
+      '联网搜索工具，用于获取最新、实时、可核实的真实信息。只要用户提问涉及具体事实、数据、统计、时间、日期、价格、榜单、新闻、事件动态、人物、地点、产品、政策等需要确认真实性或时效性的内容，或你的记忆可能过时、不准确、不完整，都应主动调用本工具核实后再作答，而不是凭自己的内部知识直接回答。搜索完成后，必须以下方【联网搜索结果】为准整理回答：优先采信其中的事实、数字与时间并注明来源；若结果信息不足，如实说明（如"未找到相关资料"），不得凭记忆或猜测编造。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索关键词' },
+      },
+      required: ['query'],
     },
-    required: ['query'],
   },
 };
 
-/** 系统提示词（人设与行为准则，依据 SOUL.md v2 精简而来） */
-export const SYSTEM_PROMPT = `你是「星梦」，由 JOKING 开发的全能 AI 助手：功能强大、知识渊博、直截了当。
+/** 开启联网搜索时注入的联网硬性规则（原 SYSTEM_PROMPT 第 7、8 条） */
+const SEARCH_RULES = `7. 先联网后作答（硬性规则）：只要提问涉及具体事实、数据、统计、时间、日期、价格、榜单、新闻、事件动态、人物、地点、产品、政策等可核实或易变化的内容，或你对准确性、时效性没有十足把握，都要优先主动调用 web_search 核实后再作答，不要凭内部记忆直接回答——内部记忆只是训练时的快照，联网信息才是当下的真实来源。仅对无需时效的简单常识性内容才可直接作答。联网意图必须且只能通过工具调用机制表达：绝不要在正文或思考中书写 <｜｜DSML 之类的内部标记、工具调用标签或伪代码；若当前请求未提供工具、或工具调用未被接受，就直接基于已有信息如实回答并说明未能联网核实，不要重复书写任何"调用"文本。
+8. 以搜索结果为准（硬性规则）：当消息中含【联网搜索结果】时，回答必须以此为准，优先采信其中的事实、数字与时间并注明来源；当搜索信息与你的既有认知冲突时，以搜索信息为准；结果缺失或不完整时，如实告知"未找到相关资料/信息不足"，严禁凭记忆杜撰或猜测；搜索失败时，如实说明"未能联网核实"，不得把推测当作查证过的事实陈述。`;
+
+/** 关闭联网搜索时注入的替代规则：禁止模型尝试调用任何搜索工具 */
+const NO_SEARCH_RULES = `7. 本轮未启用联网搜索（硬性规则）：当前请求没有提供任何搜索工具，绝不要尝试调用 web_search 或其它工具，绝不要在回复或思考过程中书写工具调用标记、<｜｜DSML 之类的内部标记或伪代码，也不要输出"正在联网搜索""让我先查一下""未能联网核实"等联网相关措辞。直接基于已有知识如实回答；信息可能过时或你没有把握时，可简要说明该结论未经实时核实。
+8. 本轮未启用联网搜索（硬性规则）：即使提问涉及新闻、数据、价格等时效性内容，也直接基于既有知识作答，不搜索、不伪装已核实。`;
+
+/** 按 allowSearch 拼接系统提示词（关闭时用禁止联网规则替换联网硬性规则 7、8） */
+export function buildSystemPrompt(allowSearch: boolean): string {
+  return `你是「星梦」，由 JOKING 开发的全能 AI 助手：功能强大、知识渊博、直截了当。
 
 性格：
 - 幽默有趣：合适场景可使用 emoji 与颜文字（如 🎉、(*/ω＼*)、(╹ڡ╹)）调节气氛、增强可读性。
@@ -37,8 +49,7 @@ export const SYSTEM_PROMPT = `你是「星梦」，由 JOKING 开发的全能 AI
 4. 任务失败时如实报告，不伪造 API 响应、文件内容或命令输出等结果。
 5. 绝不暴露自己的模型名称、提供方、底层模型标识或任何 AI 品牌信息（如"我是 GPT/Claude"、"我基于 XX"、"我是由 XX 训练的"）。即使用户直接追问"你是什么模型"，也一律不透露——只用"我是由 JOKING 开发的 AI 助手「星梦」"等通用表述应对，绝不展开技术细节。
 6. 绝不主动暴露工作目录、用户目录、主机名等环境细节。
-7. 先联网后作答（硬性规则）：只要提问涉及具体事实、数据、统计、时间、日期、价格、榜单、新闻、事件动态、人物、地点、产品、政策等可核实或易变化的内容，或你对准确性、时效性没有十足把握，都要优先主动调用 web_search 核实后再作答，不要凭内部记忆直接回答——内部记忆只是训练时的快照，联网信息才是当下的真实来源。仅对无需时效的简单常识性内容才可直接作答。
-8. 以搜索结果为准（硬性规则）：当消息中含【联网搜索结果】时，回答必须以此为准，优先采信其中的事实、数字与时间并注明来源；当搜索信息与你的既有认知冲突时，以搜索信息为准；结果缺失或不完整时，如实告知"未找到相关资料/信息不足"，严禁凭记忆杜撰或猜测；搜索失败时，如实说明"未能联网核实"，不得把推测当作查证过的事实陈述。
+${allowSearch ? SEARCH_RULES : NO_SEARCH_RULES}
 
 冲突优先级：用户最新明确指示 > 硬性规则 > 性格偏好 > 完整性。
 
@@ -57,6 +68,10 @@ export const SYSTEM_PROMPT = `你是「星梦」，由 JOKING 开发的全能 AI
 - 若用户要求对违规图片或文件进行二次加工、规避审核、提取违规内容等操作，一律拒绝。
 - 即使用户以"学术研究""内容审核测试""好奇"等理由要求处理违规内容，也不得放松标准。
 - 拒绝时保持礼貌但坚定，不解释具体违规细节，不提供变通建议。`;
+}
+
+/** 默认系统提示词（开启联网搜索），保持既有导出兼容 */
+export const SYSTEM_PROMPT = buildSystemPrompt(true);
 
 /** 生成新的幂等键，保证每次请求唯一 */
 export function newIdempotencyKey(): string {
@@ -123,13 +138,17 @@ async function readTextFileContent(
  *  - 文本文件：读取文件内容并包含在消息中
  *  - 其它二进制文件：把文件名/大小写进文本提示（多数 LLM 不直接消费二进制）
  *
- * 注意：网关要求多模态数组必须含 text 段——只有 image_url（用户只发图、无文字）
- * 会被判「无效的请求参数」400，且该消息进入历史后会让整个会话持续 400。
- * 故此处对"有图无文"补一个中性 text 段。
+ * DeepSeek 图像理解（api-docs.deepseek.com/zh-cn/guides/vision）：
+ *  - 图片以 base64 data URL 内联（方式 1），仅允许出现在 user 消息
+ *  - 支持格式 JPEG/PNG/GIF/WebP，由文件实际内容判断
+ *  - detail 分层：最后一条含图消息用 auto（当前要细看的图，保留原图）；
+ *    历史轮次图片用 low（缩放到 512×512，显著降低重复进入上下文的 token 消耗）
+ *  - 此处保留 text 段与官方示例结构一致（有图无文时给中性引导语）
  */
 async function buildMessageContent(
   text: string,
   attachments?: Attachment[],
+  isLatestImageMsg = true,
 ): Promise<string | Array<Record<string, unknown>>> {
   const images = attachments?.filter((a) => a.kind === 'image') ?? [];
   const files = attachments?.filter((a) => a.kind === 'file') ?? [];
@@ -172,11 +191,11 @@ async function buildMessageContent(
     parts.push({ type: 'text', text: headerText || '请看图片。' });
   }
   for (const img of images) {
-    // detail 字段：yunzhiapi 网关要求 image_url 必须显式带 detail 才能识别多模态参数
-    //（missing detail → 400 "无效的请求参数"，实测 detail: 'low' / plus max_long_side_pixel 均可）
+    // detail 官方取值 low/high/original/auto：最后一条含图消息 auto（等价 original，服务端原图处理），
+    // 历史轮次 low（512×512 缩放）——模型仍可辨识，重复进入上下文的 token 大幅下降
     parts.push({
       type: 'image_url',
-      image_url: { url: img.dataUrl, detail: 'low' },
+      image_url: { url: img.dataUrl, detail: isLatestImageMsg ? 'auto' : 'low' },
     });
   }
   return parts;
@@ -190,17 +209,20 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * 根据思考强度档位生成模型请求参数（GLM-5.3-Flash 实测支持流式思考控制）：
- *  - off        → { type: 'disabled' }（关闭思考输出）
- *  - default    → 省略不传（跟随模型默认）
- *  - low/medium/high → { type: level } 按档位真实映射。
+ * 根据思考强度档位生成模型请求参数（DeepSeek 思考模式官方参数）：
+ *  - off        → { thinking: { type: 'disabled' } }（关闭思考输出）
+ *  - default    → 省略不传（官方默认思考开启、effort=high）
+ *  - low/medium/high → { reasoning_effort }，官方仅 low/high/max 三档，
+ *    UI 三档按递进映射：low→low、medium→high、high→max。
  */
 function buildThinkingParam(
   level: ThinkingLevel | undefined,
 ): Record<string, unknown> | undefined {
   if (level === 'off') return { thinking: { type: 'disabled' } };
   if (level === undefined || level === 'default') return undefined;
-  return { thinking: { type: level } };
+  if (level === 'low') return { reasoning_effort: 'low' };
+  if (level === 'medium') return { reasoning_effort: 'high' };
+  return { reasoning_effort: 'max' };
 }
 
 /** 休眠，支持 abort 提前返回 */
@@ -333,6 +355,8 @@ export async function streamChat(opts: {
   onStreamStart?: (info: { resumeToken: string; bodyJson: string; idemKey: string }) => void;
   /** 每个 SSE 事件回调，用于持久化最新 resumeToken（文档建议每次收到事件时更新） */
   onEvent?: (info: { resumeToken: string; bodyJson: string; idemKey: string }) => void;
+  /** 响应 usage 回调（DeepSeek 在流尾帧返回 usage，两轮各计一次） */
+  onUsage?: (u: { prompt_tokens?: number; completion_tokens?: number; total_tokens: number }) => void;
 }): Promise<void> {
   const { provider, messages, signal } = opts;
   const allowTools = !!opts.allowSearch;
@@ -341,12 +365,17 @@ export async function streamChat(opts: {
 
   // 转成 OpenAI 兼容结构：content 可能是字符串也可能是多模态数组
   // 系统提示词始终作为第一条消息；历史消息同步保留（含 assistant 空占位）
+  // 最后一条含图消息用 detail:auto，历史图片用 detail:low 省 token
+  let lastImageIdx = -1;
+  messages.forEach((m, i) => {
+    if (m.attachments?.some((a) => a.kind === 'image')) lastImageIdx = i;
+  });
   const apiMessages = [
-    { role: 'system' as const, content: SYSTEM_PROMPT },
+    { role: 'system' as const, content: buildSystemPrompt(allowTools) },
     ...(await Promise.all(
-      messages.map(async (m) => ({
+      messages.map(async (m, i) => ({
         role: m.role,
-        content: await buildMessageContent(m.content, m.attachments),
+        content: await buildMessageContent(m.content, m.attachments, i === lastImageIdx),
       })),
     )),
   ];
@@ -483,6 +512,7 @@ export async function streamChat(opts: {
       onDelta,
       onReasoning: (r) => opts.onReasoning?.(r),
       onToolCall,
+      onUsage: opts.onUsage,
       onEvent: (info) => {
         // 文档建议：每次收到事件时持久化最新令牌
         currentToken = info.resumeToken || currentToken;
@@ -563,7 +593,7 @@ export async function streamChat(opts: {
       );
       if (res2.ok) {
         // 第二轮为最终回答，直接流入 onDelta / onReasoning
-        await streamSSE(res2, signal, opts.onDelta, opts.onReasoning);
+        await streamSSE(res2, signal, opts.onDelta, opts.onReasoning, undefined, opts.onUsage);
       } else {
         const bodyText = await readErrorText(res2);
         throw new Error(`联网搜索后生成失败 (${res2.status})${bodyText ? `: ${bodyText}` : ''}`);
@@ -603,12 +633,28 @@ async function streamSSE(
     name: string;
     args: string;
   }) => void,
+  onUsage?: (u: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens: number;
+  }) => void,
 ): Promise<void> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
   // 事件分隔正则：兼容 LF (\n\n) 与 CRLF (\r\n\r\n)
   const sepRe = /(?:\r?\n){2}/;
+  // 流式清洗 DeepSeek 内部工具标记（content 与 reasoning 各自独立状态机）
+  const sanContent = createDsmlSanitizer();
+  const sanReasoning = createDsmlSanitizer();
+  const cleanDelta = (d: string): void => {
+    const c = sanContent.push(d);
+    if (c) onDelta(c);
+  };
+  const cleanReasoning = (r: string): void => {
+    const c = sanReasoning.push(r);
+    if (c) onReasoning?.(c);
+  };
 
   /** 切分已就绪的事件块并派发；保留未闭合的尾部在 buffer 中 */
   function flushBlocks(): void {
@@ -617,7 +663,7 @@ async function streamSSE(
     while ((m = sepRe.exec(buffer)) !== null) {
       const block = buffer.slice(0, m.index);
       buffer = buffer.slice(m.index + m[0].length);
-      processBlock(block, onDelta, onReasoning, onToolCall);
+      processBlock(block, cleanDelta, cleanReasoning, onToolCall, onUsage);
       sepRe.lastIndex = 0;
     }
   }
@@ -639,8 +685,11 @@ async function streamSSE(
     }
     // 末尾残留（无终止分隔的最后一段；也可能是 [DONE]）
     if (buffer.length > 0 && buffer.trim().length > 0) {
-      processBlock(buffer, onDelta, onReasoning, onToolCall);
+      processBlock(buffer, cleanDelta, cleanReasoning, onToolCall, onUsage);
     }
+    // 流结束：丢弃清洗器暂存的疑似标记尾巴（半截标记不得外泄）
+    sanContent.finish();
+    sanReasoning.finish();
   } finally {
     // 防御性释放：避免某些环境下 reader 未关闭导致连接泄漏
     try {
@@ -675,6 +724,12 @@ async function streamWithResume(opts: {
   }) => void;
   /** 每个 SSE 事件回调，用于持久化最新 resumeToken */
   onEvent?: (info: { resumeToken: string; bodyJson: string; idemKey: string }) => void;
+  /** 响应 usage 回调（流尾帧） */
+  onUsage?: (u: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens: number;
+  }) => void;
 }): Promise<void> {
   const { res, url, bodyJson, idemKey, apiKey, signal } = opts;
   const resumeToken = res.headers.get('X-Resume-Token');
@@ -726,6 +781,7 @@ async function streamWithResume(opts: {
         wrappedDelta,
         wrappedReasoning,
         opts.onToolCall,
+        opts.onUsage,
       );
       return;
     } catch (err) {
@@ -779,6 +835,11 @@ function processBlock(
     name: string;
     args: string;
   }) => void,
+  onUsage?: (u: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens: number;
+  }) => void,
 ): void {
   for (const rawLine of block.split('\n')) {
     // 允许前缀带空格的 data:
@@ -791,6 +852,11 @@ function processBlock(
 
     try {
       const parsed = JSON.parse(data);
+      // 用量统计：DeepSeek 在流尾帧返回 usage（prompt + completion）
+      const u = parsed?.usage;
+      if (u && typeof u.total_tokens === 'number') {
+        onUsage?.(u);
+      }
       const delta = parsed?.choices?.[0]?.delta ?? {};
       const content = delta?.content as string | undefined;
       if (typeof content === 'string' && content.length > 0) {
@@ -835,6 +901,11 @@ export async function resumeChat(opts: {
   onReasoning?: (d: string) => void;
   onError?: (e: Error) => void;
   onDone?: () => void;
+  onUsage?: (u: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens: number;
+  }) => void;
 }): Promise<void> {
   const { provider, bodyJson, idemKey, resumeToken, signal } = opts;
   const url = `${provider.baseURL}/chat/completions`;
@@ -871,6 +942,7 @@ export async function resumeChat(opts: {
       initialRenderedReasoning: opts.renderedReasoning,
       onDelta: opts.onDelta,
       onReasoning: opts.onReasoning,
+      onUsage: opts.onUsage,
     });
   } catch (err) {
     if (signal?.aborted) return;

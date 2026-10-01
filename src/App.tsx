@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChatProvider } from './hooks/useChatStore';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
+import UsageLimitModal from './components/UsageLimitModal';
 
 /** 主题持久化键名 */
 const THEME_KEY = 'xm-theme';
@@ -86,6 +87,8 @@ export default function App() {
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((v) => !v)}
         />
+        {/* 每日 Token 用量上限提醒 */}
+        <UsageLimitModal />
       </div>
     </ChatProvider>
   );

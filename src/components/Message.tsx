@@ -1,5 +1,6 @@
 import { memo, useState, useRef, useEffect } from 'react';
 import type { Attachment, ChatMessage } from '../types';
+import { isImageFileMeta } from '../lib/attachment';
 import Markdown from './Markdown';
 import ImageLightbox from './ImageLightbox';
 
@@ -96,7 +97,8 @@ function AttachmentsGrid({ items }: { items: Attachment[] }) {
   return (
     <div className="mb-1.5 flex flex-wrap gap-1.5">
       {items.map((a) => {
-        if (a.kind === 'image') {
+        // 图片（含"上传文件"入口选入、历史遗留的 file-kind 图片）统一按缩略图展示
+        if (a.kind === 'image' || (a.kind === 'file' && isImageFileMeta(a.mime, a.name))) {
           const displaySize = a.originalSize ?? a.size;
           return (
             <div
@@ -151,19 +153,7 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
           )}
         </div>
-        {/* 审核状态标签：气泡下方显示 */}
-        {message.moderating && (
-          <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-500 dark:text-amber-400">
-            <i className="fa-solid fa-shield-halved" />
-            <span>审核中</span>
-          </div>
-        )}
-        {message.moderated && !message.moderating && (
-          <div className="mt-1 flex items-center gap-1 text-[11px] text-green-500 dark:text-green-400">
-            <i className="fa-solid fa-circle-check" />
-            <span>审核通过</span>
-          </div>
-        )}
+
       </div>
     );
   }
