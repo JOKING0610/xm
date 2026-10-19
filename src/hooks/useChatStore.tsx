@@ -8,11 +8,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import type { Attachment, ChatMessage, Conversation, ProviderId, Settings, ThinkingLevel } from '../types';
-import { DEFAULT_PROVIDER, getProvider } from '../config/api';
+import { DEFAULT_PROVIDER, getProvider, isProviderId } from '../config/api';
 import { streamChat, resumeChat } from '../lib/api';
 import { createModeration } from '../lib/moderation';
 import { dbAll, dbDelete, dbGet, dbPut } from '../lib/db';
-import { addTodayTokens, getTodayUsage, todayKey, DAILY_TOKEN_LIMIT, type DailyUsage } from '../lib/usage';
 import { uuid } from '../lib/uuid';
 
 /** 会话 store 对外暴露的接口 */
@@ -30,14 +29,6 @@ export interface ChatStore {
   streamError: string | null;
   /** 内容审核中：发送消息时显示"正在审核中"状态 */
   moderating: boolean;
-  /** 每日用量上限弹窗是否打开 */
-  limitModalOpen: boolean;
-  /** 关闭每日用量上限弹窗 */
-  closeLimitModal: () => void;
-  /** 今日 Token 用量（模态框展示用） */
-  todayUsage: DailyUsage;
-  /** 每日 Token 上限常量 */
-  dailyTokenLimit: number;
   newConversation: () => string;
   /** 新建对话行为：已存在空会话则切换过去，否则新建（避免累积多个空白会话） */
   openOrCreateEmpty: () => string;
@@ -74,10 +65,34 @@ function isThinkingLevel(v: unknown): v is ThinkingLevel {
 
 /** 统一的对外错误提示文案（不向用户暴露技术细节） */
 export const ERROR_BUSY = '服务繁忙,请稍后重试';
-/** 上下文上限：会话累计文本（字符）达到该值后禁止继续发送 */
-export const MAX_CONTEXT_CHARS = 1_000_000;
-/** 上下文达上限时的提示 */
-export const CONTEXT_FULL_MSG = '上下文已达上限（1M 字符），请新建对话后继续';
+
+/** CJK 字符（中日韩文字/假名）匹配：逐字 ≈ 1 token */
+const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/g;
+
+/**
+ * 粗略估算文本 token 数：CJK 字符 ≈ 1 token/字，其余字符 ≈ 4 字符/token。
+ * 用于前端按模型上下文窗口（tokens）做预算判断与用量显示（非计费精确值）。
+ */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  const cjk = (text.match(CJK_RE) ?? []).length;
+  return cjk + Math.ceil((text.length - cjk) / 4);
+}
+
+/** token 数友好显示：1000000 → "1M"，512000 → "512K" */
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
+  }
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+  return String(n);
+}
+
+/** 上下文达上限提示（按当前模型的 token 预算动态生成） */
+export function contextFullMsg(budgetTokens: number): string {
+  return `上下文已达上限（${formatTokens(budgetTokens)} tokens），请新建对话后继续`;
+}
 
 /** 把第一句话截断成会话标题（≤24 字） */
 function deriveTitleFromMessage(text: string): string {
@@ -86,11 +101,11 @@ function deriveTitleFromMessage(text: string): string {
   return flat.length > 24 ? flat.slice(0, 24) + '…' : flat;
 }
 
-/** 计算会话累计文本字符数（内容长度总和；不含思维链） */
-function contextChars(conv: { messages: Array<{ content: string; attachments?: Attachment[] }> }): number {
+/** 计算会话累计估算 token 数（内容长度总和；不含思维链） */
+function contextTokensUsed(conv: { messages: Array<{ content: string; attachments?: Attachment[] }> }): number {
   let total = 0;
   for (const m of conv.messages) {
-    total += m.content?.length ?? 0;
+    total += estimateTokens(m.content ?? '');
   }
   return total;
 }
@@ -113,12 +128,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
   const [streamError, setStreamError] = useState<string | null>(null);
   // 内容审核中：发送消息时显示"正在审核中"状态
   const [moderating, setModerating] = useState(false);
-  // 每日 Token 用量限制：弹窗状态 + 今日用量
-  const [limitModalOpen, setLimitModalOpen] = useState(false);
-  const [todayUsage, setTodayUsage] = useState<DailyUsage>(() => ({
-    date: todayKey(),
-    tokens: 0,
-  }));
 
   // 竞态防护（React 19 开发模式 effect 双执行）：
   // hydratedRef 标记是否已发起恢复；initRef 标记恢复是否已完成为 true，之后才接受操作。
@@ -142,12 +151,10 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       // 恢复出的模型（供自动新建会话使用；setSettings 是异步的，闭包里拿不到新值）
       let recoveredModel: ProviderId = DEFAULT_PROVIDER;
       try {
-        const [rawConvs, st, usage] = await Promise.all([
+        const [rawConvs, st] = await Promise.all([
           dbAll<Conversation>('conversations'),
           dbGet<{ key: 'global'; value: Settings }>('settings', 'global'),
-          getTodayUsage(),
         ]);
-        setTodayUsage(usage);
         // 归一化恢复的数据：防御历史/异常记录（缺字段、无效 id）避免渲染崩溃
         const normalized: Conversation[] = (rawConvs ?? [])
           .filter((c) => c && typeof c.id === 'string' && c.id !== '')
@@ -155,12 +162,12 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
             id: c.id,
             title: typeof c.title === 'string' && c.title ? c.title : '新对话',
             messages: Array.isArray(c.messages) ? c.messages : [],
-            model: c.model === DEFAULT_PROVIDER ? c.model : DEFAULT_PROVIDER,
+            model: isProviderId(c.model) ? c.model : DEFAULT_PROVIDER,
             createdAt: Number.isFinite(c.createdAt) ? c.createdAt : Date.now(),
             updatedAt: Number.isFinite(c.updatedAt) ? c.updatedAt : Date.now(),
           }));
         setConversations(normalized);
-        if (st?.value && st.value.model === DEFAULT_PROVIDER) {
+        if (st?.value && isProviderId(st.value.model)) {
           setSettings({
             model: st.value.model,
             thinkingLevel: isThinkingLevel(st.value.thinkingLevel)
@@ -184,33 +191,9 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
         // 打开页面：自动创建新会话并切换至该新会话（空白不落盘，刷新后重新创建）
         // 传 recoveredModel：此时 settings 闭包仍是初始值，须显式带上恢复的模型
         newConversation(recoveredModel);
-        // 每次打开页面：自动弹出用量限制提醒（提示限额并引导下载 App）
-        setLimitModalOpen(true);
       }
     })();
   }, []);
-
-  /** 每日用量是否已达上限（state 里的记录非今天则视为 0，跨天自动放行） */
-  function exceedsDailyLimit(): boolean {
-    return todayUsage.date === todayKey() && todayUsage.tokens >= DAILY_TOKEN_LIMIT;
-  }
-
-  /** 达到每日上限：打开提醒弹窗并返回 true（调用方据此拦截发送） */
-  function blockByDailyLimit(): boolean {
-    if (!exceedsDailyLimit()) return false;
-    setLimitModalOpen(true);
-    return true;
-  }
-
-  /** 累计一次响应的 Token 用量（流尾 usage 回调） */
-  function handleUsage(u: { total_tokens: number }): void {
-    if (!Number.isFinite(u.total_tokens) || u.total_tokens <= 0) return;
-    void addTodayTokens(u.total_tokens).then((next) => setTodayUsage(next));
-  }
-
-  function closeLimitModal(): void {
-    setLimitModalOpen(false);
-  }
 
   /** 把会话 id 加入流式集合（不可变更新） */
   function markStreaming(id: string): void {
@@ -416,12 +399,9 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     const conv = conversations.find((c) => c.id === activeId);
     if (!conv) return;
 
-    // 每日 Token 用量上限：已达上限禁止发送，弹窗提醒并引导下载 App
-    if (blockByDailyLimit()) return;
-
-    // 上下文上限：已达上限禁止继续发送
-    if (contextChars(conv) >= MAX_CONTEXT_CHARS) {
-      setStreamError(CONTEXT_FULL_MSG);
+    // 上下文上限：按当前模型 token 预算判断，已达上限禁止继续发送
+    if (contextTokensUsed(conv) >= getProvider(conv.model).contextTokens) {
+      setStreamError(contextFullMsg(getProvider(conv.model).contextTokens));
       return;
     }
 
@@ -509,8 +489,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     seed: Conversation,
     extra?: { allowSearch?: boolean },
   ): Promise<void> {
-    // 每日用量上限（覆盖 sendMessage 之后、retry 等所有经此启动的流）
-    if (blockByDailyLimit()) return;
     const now = Date.now();
     const placeholder: ChatMessage = {
       id: uuid(),
@@ -574,7 +552,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
           mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
         onReasoning: (d) =>
           mutatePlaceholder((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
-        onUsage: handleUsage,
         onError: (e) => {
           // 对外统一文案，不暴露底层错误细节；标记失败以显示重试按钮
           void e;
@@ -685,8 +662,8 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
       setStreamError(null);
     }
 
-    if (contextChars(trimmed) >= MAX_CONTEXT_CHARS) {
-      setStreamError(CONTEXT_FULL_MSG);
+    if (contextTokensUsed(trimmed) >= getProvider(trimmed.model).contextTokens) {
+      setStreamError(contextFullMsg(getProvider(trimmed.model).contextTokens));
       return;
     }
     await runStream(trimmed);
@@ -698,8 +675,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
    */
   async function resumeConversation(id: string): Promise<void> {
     await ensureReady();
-    // 每日用量上限：达限后禁止恢复生成（等同向模型发送请求）
-    if (blockByDailyLimit()) return;
     const conv = conversations.find((c) => c.id === id);
     if (!conv || !conv.pending) return;
     const { resumeToken, bodyJson, idemKey, renderedContent, renderedReasoning } = conv.pending;
@@ -759,7 +734,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
           mutatePlaceholder((m) => ({ ...m, content: (m.content ?? '') + d })),
         onReasoning: (d) =>
           mutatePlaceholder((m) => ({ ...m, reasoning: (m.reasoning ?? '') + d })),
-        onUsage: handleUsage,
         onError: (e) => {
           void e;
           setStreamError(ERROR_BUSY);
@@ -816,10 +790,6 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     unreadIds,
     streamError,
     moderating,
-    limitModalOpen,
-    closeLimitModal,
-    todayUsage,
-    dailyTokenLimit: DAILY_TOKEN_LIMIT,
     newConversation,
     openOrCreateEmpty,
     selectConversation,

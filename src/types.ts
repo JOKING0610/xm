@@ -1,9 +1,14 @@
 // 全局共享类型定义（各模块的公共契约）
 
-/** 内置 API 提供方标识 */
-export type ProviderId = 'deepseek';
+/** 内置模型标识（每个可选模型即一个提供方条目） */
+export type ProviderId =
+  | 'gemini-3.8'
+  | 'gemini-3.7'
+  | 'gemini-3.6'
+  | 'agnes-cn'
+  | 'agnes-hub';
 
-/** 提供方配置（baseURL + key + 默认模型） */
+/** 提供方配置（baseURL + key + 模型 + 能力标记） */
 export interface ProviderMeta {
   id: ProviderId;
   label: string;
@@ -12,6 +17,12 @@ export interface ProviderMeta {
   model: string;
   /** 提供方是否提供内容审核端点（缺省视为支持；false 时跳过审核请求直接放行） */
   moderationSupported?: boolean;
+  /** 是否支持独立思考过程（reasoning_content）输出；false 时不下发思考参数、隐藏思考控件 */
+  supportsThinking?: boolean;
+  /** 上下文窗口上限（tokens），用于前端 token 预算判断与用量显示 */
+  contextTokens: number;
+  /** 单次回复最大输出长度（tokens），作为 max_tokens 下发给模型 */
+  maxOutputTokens: number;
 }
 
 export type ChatRole = 'user' | 'assistant';

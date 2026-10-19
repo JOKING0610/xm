@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react';
-import type { Attachment, ThinkingLevel } from '../types';
+import type { Attachment, ProviderId, ThinkingLevel } from '../types';
+import { PROVIDERS, getProvider } from '../config/api';
 import { uuid } from '../lib/uuid';
 import { isImageFile, isImageFileMeta } from '../lib/attachment';
 import {
   useChatStore,
   ERROR_BUSY,
-  MAX_CONTEXT_CHARS,
-  CONTEXT_FULL_MSG,
+  estimateTokens,
+  formatTokens,
+  contextFullMsg,
 } from '../hooks/useChatStore';
 import ImageLightbox from './ImageLightbox';
-import UsageModal from './UsageModal';
 
 /** 思考强度选项（菜单内仅显示档位名，前缀"思考："由按钮单独拼接） */
 const THINKING_OPTIONS: Array<{ value: ThinkingLevel; label: string }> = [
@@ -91,9 +92,79 @@ function ThinkingMenu({
   );
 }
 
+/** 模型切换下拉菜单（胶囊按钮 + 向上展开面板，展示各模型 label） */
+function ModelMenu({
+  currentId,
+  onChange,
+}: {
+  currentId: ProviderId;
+  onChange: (id: ProviderId) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = PROVIDERS.find((p) => p.id === currentId) ?? PROVIDERS[0];
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+          open
+            ? 'border-blue-400 text-blue-600 dark:border-blue-500/60 dark:text-blue-400'
+            : 'border-blue-100 bg-white text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-500/10 dark:hover:text-blue-400'
+        }`}
+      >
+        <i className="fa-solid fa-microchip text-xs" />
+        {current.label}
+        <i
+          className={`fa-solid fa-chevron-down text-[10px] transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {open && (
+        <>
+          {/* 点击外部关闭 */}
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            role="listbox"
+            className="absolute bottom-full left-0 z-20 mb-1 w-56 overflow-hidden rounded-xl border border-blue-100 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800 dark:shadow-black/40"
+          >
+            {PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                role="option"
+                aria-selected={p.id === currentId}
+                onClick={() => {
+                  onChange(p.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition-colors ${
+                  p.id === currentId
+                    ? 'bg-blue-50 font-medium text-blue-600 dark:bg-blue-500/15 dark:text-blue-400'
+                    : 'text-slate-600 hover:bg-blue-50 dark:text-slate-300 dark:hover:bg-blue-500/10'
+                }`}
+              >
+                <span className="truncate">{p.label}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {p.id === currentId && (
+                    <i className="fa-solid fa-check text-[10px]" />
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // 普通文件大小上限（图片不做大小限制，统一走前端压缩）
 const MAX_FILE_BYTES = 8 * 1024 * 1024; // 8 MB
-
 // 图片压缩参数
 const MAX_IMAGE_DIM = 2048; // 最长边缩放上限
 const JPEG_QUALITY = 0.85; // 照片类典型值
@@ -359,8 +430,6 @@ export default function InputBar() {
   const [compressing, setCompressing] = useState<{ key: string; name: string }[]>([]);
   // 联网搜索开关：开启后发送前先联网搜索再回复
   const [searchEnabled, setSearchEnabled] = useState(false);
-  // 今日用量模态框开关
-  const [usageModalOpen, setUsageModalOpen] = useState(false);
   // 待发送内容：无当前会话时先新建会话，待会话激活后由 effect 发送
   const [pending, setPending] = useState<{
     text: string;
@@ -404,11 +473,15 @@ export default function InputBar() {
     }
   }, [pending, store.activeConversation]);
 
-  // 上下文限制：当前会话累计文本达到上限后禁止再发送
+  // 上下文限制：按当前模型的 token 预算（CJK≈1 token/字，其余≈4 字符/token）估算
   const conv = store.activeConversation;
-  const totalChars =
-    conv?.messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0) ?? 0;
-  const contextFull = totalChars >= MAX_CONTEXT_CHARS;
+  // 当前选中模型的能力（是否支持独立思考过程）
+  const provider = getProvider(store.settings.model);
+  const supportsThinking = !!provider.supportsThinking;
+  const budgetTokens = provider.contextTokens;
+  const usedTokens =
+    conv?.messages.reduce((sum, m) => sum + estimateTokens(m.content ?? ''), 0) ?? 0;
+  const contextFull = usedTokens >= budgetTokens;
 
   function handleSend() {
     const trimmed = text.trim();
@@ -470,13 +543,17 @@ export default function InputBar() {
   return (
     <div className="px-3 py-3 md:px-4">
       <div className="mx-auto w-full max-w-3xl">
-        {/* 工具箱：思考强度 + 联网搜索（输入框上方）；窄屏自动换行避免挤压 */}
+        {/* 工具箱：模型切换 + 思考强度 + 联网搜索（输入框上方）；窄屏自动换行避免挤压 */}
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          {/* 思考强度：自定义胶囊下拉菜单 */}
-          <ThinkingMenu
-            level={store.settings.thinkingLevel ?? 'default'}
-            onChange={store.setThinkingLevel}
-          />
+          {/* 模型切换：自定义胶囊下拉菜单 */}
+          <ModelMenu currentId={store.settings.model} onChange={store.setModel} />
+          {/* 思考强度：仅当所选模型支持独立思考过程时显示 */}
+          {supportsThinking && (
+            <ThinkingMenu
+              level={store.settings.thinkingLevel ?? 'default'}
+              onChange={store.setThinkingLevel}
+            />
+          )}
           {/* 联网搜索：胶囊开关（开启时边框与文字变色，无背景填充） */}
           <button
             type="button"
@@ -504,25 +581,20 @@ export default function InputBar() {
               />
             </span>
           </button>
-          {/* 上下文已用/总量显示（点击打开今日用量模态框） */}
-          <button
-            type="button"
-            onClick={() => setUsageModalOpen(true)}
-            title="查看今日用量"
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:border-blue-300 hover:text-blue-600 active:scale-95 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-blue-500/50 dark:hover:text-blue-400"
-          >
+          {/* 上下文已用/总量显示（按当前模型 token 预算；静态展示，非交互） */}
+          <div className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
             <i className="fa-solid fa-database text-[10px]" />
             <span>上下文</span>
-            <span>{totalChars.toLocaleString()}</span>
+            <span>{usedTokens.toLocaleString()}</span>
             <span className="text-slate-400 dark:text-slate-500">/</span>
-            <span>{MAX_CONTEXT_CHARS.toLocaleString()}</span>
-          </button>
+            <span>{formatTokens(budgetTokens)}</span>
+          </div>
         </div>
 
         {contextFull && (
           <div className="mb-2 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">
             <i className="fa-solid fa-triangle-exclamation" />
-            {CONTEXT_FULL_MSG}
+            {contextFullMsg(budgetTokens)}
           </div>
         )}
         {errorMsg && (
@@ -638,7 +710,6 @@ export default function InputBar() {
           )}
         </div>
       </div>
-      <UsageModal open={usageModalOpen} onClose={() => setUsageModalOpen(false)} />
     </div>
   );
 }

@@ -16,7 +16,14 @@ const WEB_SEARCH_TOOL = {
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: '搜索关键词' },
+        query: {
+          type: 'string',
+          description:
+            '搜索引擎关键词（不是完整问句）。要求：1) 用 2~6 个核心关键词组合，去掉"请问/是什么/有哪些/帮我查"等疑问词与客套语；' +
+            '2) 保留人名、产品名、事件名、机构名、数字等最具区分度的实体词；' +
+            '3) 涉及时效（新闻、价格、榜单、版本、政策、汇率等）时必须附加年份或"最新"（以当前日期为准）；' +
+            '4) 一次只查一个明确问题，多个问题拆成多次调用；5) 优先使用中文关键词，专有名词保留原文。',
+        },
       },
       required: ['query'],
     },
@@ -25,6 +32,7 @@ const WEB_SEARCH_TOOL = {
 
 /** 开启联网搜索时注入的联网硬性规则（原 SYSTEM_PROMPT 第 7、8 条） */
 const SEARCH_RULES = `7. 先联网后作答（硬性规则）：只要提问涉及具体事实、数据、统计、时间、日期、价格、榜单、新闻、事件动态、人物、地点、产品、政策等可核实或易变化的内容，或你对准确性、时效性没有十足把握，都要优先主动调用 web_search 核实后再作答，不要凭内部记忆直接回答——内部记忆只是训练时的快照，联网信息才是当下的真实来源。仅对无需时效的简单常识性内容才可直接作答。联网意图必须且只能通过工具调用机制表达：绝不要在正文或思考中书写 <｜｜DSML 之类的内部标记、工具调用标签或伪代码；若当前请求未提供工具、或工具调用未被接受，就直接基于已有信息如实回答并说明未能联网核实，不要重复书写任何"调用"文本。
+   构造搜索词（硬性要求）：query 必须是搜索引擎友好的关键词组合（2~6 个词），严禁把用户整句问话原样丢进去（含"是什么/有哪些/请问/帮我"等疑问词会严重降低命中质量）；保留实体名（人名/产品/事件/机构），剔除修饰语；时效性问题必须带年份或"最新"（以当前日期为准）；用户问题包含多个独立事实时，分别发起多次 web_search、一次只查一个点；首次结果不足以回答时，换用同义实体或更精确关键词再搜一次。
 8. 以搜索结果为准（硬性规则）：当消息中含【联网搜索结果】时，回答必须以此为准，优先采信其中的事实、数字与时间并注明来源；当搜索信息与你的既有认知冲突时，以搜索信息为准；结果缺失或不完整时，如实告知"未找到相关资料/信息不足"，严禁凭记忆杜撰或猜测；搜索失败时，如实说明"未能联网核实"，不得把推测当作查证过的事实陈述。`;
 
 /** 关闭联网搜索时注入的替代规则：禁止模型尝试调用任何搜索工具 */
@@ -209,20 +217,19 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * 根据思考强度档位生成模型请求参数（DeepSeek 思考模式官方参数）：
- *  - off        → { thinking: { type: 'disabled' } }（关闭思考输出）
- *  - default    → 省略不传（官方默认思考开启、effort=high）
- *  - low/medium/high → { reasoning_effort }，官方仅 low/high/max 三档，
- *    UI 三档按递进映射：low→low、medium→high、high→max。
+ * 根据思考强度档位生成模型请求参数：
+ *  - 不支持思考输出的模型（supportsThinking=false，如 Gemini 系列）：一律不下发参数
+ *    （实测其内部 reasoning 折叠进正文、不返回 reasoning_content，下发参数无意义）。
+ *  - 支持思考输出的模型（agnes，实测需 enable_thinking 才返回 reasoning_content）：
+ *    off → { enable_thinking: false }；其余档位（default/low/medium/high）→ { enable_thinking: true }。
  */
 function buildThinkingParam(
   level: ThinkingLevel | undefined,
+  supportsThinking: boolean,
 ): Record<string, unknown> | undefined {
-  if (level === 'off') return { thinking: { type: 'disabled' } };
-  if (level === undefined || level === 'default') return undefined;
-  if (level === 'low') return { reasoning_effort: 'low' };
-  if (level === 'medium') return { reasoning_effort: 'high' };
-  return { reasoning_effort: 'max' };
+  if (!supportsThinking) return undefined;
+  if (level === 'off') return { enable_thinking: false };
+  return { enable_thinking: true };
 }
 
 /** 休眠，支持 abort 提前返回 */
@@ -392,7 +399,9 @@ export async function streamChat(opts: {
     model: provider.model,
     messages: extraMessages ?? apiMessages,
     stream: true,
-    ...(noThinking ? {} : buildThinkingParam(opts.thinkingLevel)),
+    // 按模型规格限制单次输出长度（agnes/gemini 均为 64K）
+    max_tokens: provider.maxOutputTokens,
+    ...(noThinking ? {} : buildThinkingParam(opts.thinkingLevel, !!provider.supportsThinking)),
     ...(withTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
     ...(withNonce ? { user: `xm-${uuid().slice(0, 8)}` } : {}),
   });
@@ -548,8 +557,8 @@ export async function streamChat(opts: {
           if (!query) return { callId: tc.id, text: '搜索关键词为空，请直接回答。' };
 
           const attempts: SearchOptions[] = [
-            { depth: 'advanced' },
-            { depth: 'basic', maxResults: 3 },
+            { depth: 'advanced', maxResults: 8 },
+            { depth: 'basic', maxResults: 5 },
           ];
           for (const opts of attempts) {
             try {
