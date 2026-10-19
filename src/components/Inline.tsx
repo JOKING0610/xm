@@ -41,8 +41,11 @@ type Token =
 function tokenizeInline(text: string): Token[] {
   const tokens: Token[] = [];
   let rest = text;
+  // 注意：加粗内容类 (?:(?!\*).)+? 显式排除 *，避免 JS 正则回溯把
+  // "**DeepSeek-R1**" 拆成斜体匹配（\* 吞掉一个星号后 [^*]+ 从残余星号继续）；
+  // 闭合处加 (?!\*) 防止与后续星号错误对齐
   const pattern =
-    /(`+)([^`\n]+)\1|\[([^\]]+)\]\(([^)\s]+)\)|(\*\*)([^*]+)\*\*|(\*)([^*]+)\*/;
+    /(`+)([^`\n]+)\1|\[([^\]]+)\]\(([^)\s]+)\)|\*\*((?:(?!\*).)+?)\*\*(?!\*)|\*([^*\n]+)\*(?!\*)/;
 
   while (rest.length > 0) {
     const m = pattern.exec(rest);
@@ -61,10 +64,10 @@ function tokenizeInline(text: string): Token[] {
       tokens.push({ kind: 'link', value: m[3], href: m[4] });
       rest = rest.slice(m.index + m[0].length);
     } else if (m[5] !== undefined) {
-      tokens.push({ kind: 'bold', value: m[6] });
+      tokens.push({ kind: 'bold', value: m[5] });
       rest = rest.slice(m.index + m[0].length);
     } else {
-      tokens.push({ kind: 'italic', value: m[8] });
+      tokens.push({ kind: 'italic', value: m[6] });
       rest = rest.slice(m.index + m[0].length);
     }
   }
