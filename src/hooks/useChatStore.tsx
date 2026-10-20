@@ -66,6 +66,22 @@ function isThinkingLevel(v: unknown): v is ThinkingLevel {
 /** 统一的对外错误提示文案（不向用户暴露技术细节） */
 export const ERROR_BUSY = '服务繁忙,请稍后重试';
 
+/**
+ * 解析 URL Fragment 中的会话 id（深链格式 #/session/<id>）。
+ * 宽容匹配：#session/x、#/session/x、#/sessions/x、URL 编码、尾部斜杠均可识别；
+ * 选 Fragment 而非查询参数，是因为 GitHub Pages 等静态托管只对根路径回退 index.html，
+ * # 之后的内容不发给服务器，天然不受 404 影响。
+ */
+export function parseSessionHash(hash: string = window.location.hash): string | null {
+  const m = /^#\/?sessions?\/([^/?#]+)\/?$/i.exec(hash);
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
 /** CJK 字符（中日韩文字/假名）匹配：逐字 ≈ 1 token */
 const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/g;
 
@@ -138,10 +154,42 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
   // 最新 activeId（供异步回调内判断"当前正在看哪个会话"）
   const activeIdRef = useRef<string | null>(null);
 
+  // 最新会话列表（供 hashchange 监听器等异步回调判断 id 是否存在）
+  const conversationsRef = useRef<Conversation[]>([]);
+
   // activeId 变化时同步到 ref（onDone 绿点判断依赖最新值）
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // URL 静默同步：活跃会话变化时回写 #/session/<id>。
+  // 用 replaceState 而非 pushState——地址栏可分享、可直达，但不新增浏览器历史，
+  // 返回键保持"离开页面"的自然行为。
+  useEffect(() => {
+    const target = activeId ? `#/session/${activeId}` : '';
+    if (target && window.location.hash !== target) {
+      history.replaceState(null, '', target);
+    } else if (!target && window.location.hash) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, [activeId]);
+
+  // 外部修改 hash（地址栏编辑、hashchange）→ 切到对应会话；未知 id 忽略不报错
+  useEffect(() => {
+    function onHashChange(): void {
+      const id = parseSessionHash();
+      if (!id || id === activeIdRef.current) return;
+      if (conversationsRef.current.some((c) => c.id === id)) {
+        selectConversation(id);
+      }
+    }
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   // 挂载时仅执行一次：从 db 恢复会话与设置
   useEffect(() => {
@@ -150,6 +198,8 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
     (async () => {
       // 恢复出的模型（供自动新建会话使用；setSettings 是异步的，闭包里拿不到新值）
       let recoveredModel: ProviderId = DEFAULT_PROVIDER;
+      // 恢复完成后的有效会话（非空白），供 finally 里深链判定
+      let finalConvs: Conversation[] = [];
       try {
         const [rawConvs, st] = await Promise.all([
           dbAll<Conversation>('conversations'),
@@ -186,11 +236,20 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
           // 若被清掉的正好是当前活跃会话，activeId 置空
           setActiveId((prev) => (prev && emptyIds.includes(prev) ? null : prev));
         }
+        finalConvs = normalized.filter((c) => c.messages.length > 0);
       } finally {
         initRef.current = true;
-        // 打开页面：自动创建新会话并切换至该新会话（空白不落盘，刷新后重新创建）
-        // 传 recoveredModel：此时 settings 闭包仍是初始值，须显式带上恢复的模型
-        newConversation(recoveredModel);
+        // 深链直达：URL 带 #/session/<id> 且指向有效会话 → 直接进入该会话；
+        // 否则维持原行为：自动创建新会话并切换（空白不落盘，刷新后重新创建）
+        const hashId = parseSessionHash();
+        const deepTarget = hashId ? finalConvs.find((c) => c.id === hashId) : undefined;
+        if (deepTarget) {
+          setActiveId(deepTarget.id);
+          clearUnread(deepTarget.id);
+        } else {
+          // 传 recoveredModel：此时 settings 闭包仍是初始值，须显式带上恢复的模型
+          newConversation(recoveredModel);
+        }
       }
     })();
   }, []);
