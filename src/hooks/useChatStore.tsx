@@ -167,9 +167,10 @@ export function ChatProvider({ children }: { children: ReactNode }): ReactElemen
   }, [conversations]);
 
   // URL 静默同步：活跃会话变化时回写 #/session/<id>。
-  // 用 replaceState 而非 pushState——地址栏可分享、可直达，但不新增浏览器历史，
-  // 返回键保持"离开页面"的自然行为。
+  // 水合完成前必须跳过：启动瞬间 activeId 仍为 null，若此时执行会把地址栏里的深链 hash 误清掉，
+  // 导致水合结束后 parseSessionHash 拿不到 id、无法直达对应会话（只能新建会话）。
   useEffect(() => {
+    if (!initRef.current) return;
     const target = activeId ? `#/session/${activeId}` : '';
     if (target && window.location.hash !== target) {
       history.replaceState(null, '', target);

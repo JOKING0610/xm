@@ -61,21 +61,14 @@ export default function ChatView({
   const nearBottomRef = useRef(true);
   // 是否在底部附近：控制"回到底部"悬浮按钮显隐（与 ref 同步，仅变化时 setState）
   const [atBottom, setAtBottom] = useState(true);
-  // "对话跳转"下拉是否展开
-  const [jumpOpen, setJumpOpen] = useState(false);
-  // scroll-spy：当前视口顶部所在轮次（用户消息 id），导航面板实时高亮
+  // scroll-spy：当前视口顶部所在轮次（用户消息 id），钢琴键实时变色联动
   const [activeRound, setActiveRound] = useState<string | null>(null);
   // 各会话离开时的滚动位置：切换会话后恢复原位（在底部附近则仍回到底部）
   const scrollPosRef = useRef<Map<string, { top: number; near: boolean }>>(new Map());
   // scroll-spy 节流定时器（约 120ms）
   const spyTimerRef = useRef<number | null>(null);
-  // scroll-spy 跟随暂停：手动滚动导航面板后暂停反向高亮，点击跳转或重开面板后恢复
-  const spyPauseRef = useRef(false);
-  // 轮次折叠：已展开步次明细的轮（用户消息 id）集合
-  const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set());
-  // 导航面板容器 + "程序化居中滚动"标记（其触发的 scroll 事件不算用户手动滚动）
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const panelAutoScrollRef = useRef(false);
+  // 钢琴键悬停的轮（用户消息 id）：控制阶梯展开与预览气泡
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
   // 安装包下载中状态：下载期间按钮显示进度并禁用，避免重复触发
   const [downloading, setDownloading] = useState(false);
   const conv = store.activeConversation;
@@ -106,21 +99,11 @@ export default function ChatView({
     }
     return out;
   }, [msgs]);
-
-  /** 切换某轮步次明细的展开/收起 */
-  function toggleRound(id: string): void {
-    setExpandedRounds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  // 悬停键索引：用于计算 ±1/±2 阶梯长度
+  const hoveredIdx = hoverKey === null ? null : rounds.findIndex((r) => r.userId === hoverKey);
 
   /** scroll-spy：以滚动容器顶部为基准，找最后一个"顶边已越过基准线"的用户消息作为当前轮次 */
   function updateActiveRound(): void {
-    // 用户手动滚动导航面板期间暂停跟随，避免高亮被对话滚动"抢走"
-    if (spyPauseRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
     const base = el.getBoundingClientRect().top;
@@ -151,16 +134,6 @@ export default function ChatView({
     }
   }
 
-  /** 展开/收起导航面板；展开时恢复跟随并立即判定一次当前轮次 */
-  function toggleJump(): void {
-    const next = !jumpOpen;
-    setJumpOpen(next);
-    if (next) {
-      spyPauseRef.current = false;
-      updateActiveRound();
-    }
-  }
-
   /** 回到底部：滚到消息末尾并恢复自动跟随 */
   function scrollToBottom(): void {
     nearBottomRef.current = true;
@@ -170,7 +143,6 @@ export default function ChatView({
 
   /** 对话跳转：按稳定锚点契约 [data-chat-anchor-key] 定位 → 平滑滚动 → 1.2s 品牌蓝高亮环 */
   function jumpToMessage(id: string): void {
-    setJumpOpen(false);
     const target = document.querySelector(`[data-chat-anchor-key="${id}"]`);
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -179,8 +151,6 @@ export default function ChatView({
     void (target as HTMLElement).offsetWidth;
     target.classList.add('nav-jump-highlight');
     window.setTimeout(() => target.classList.remove('nav-jump-highlight'), 1200);
-    // 点击跳转后恢复 scroll-spy 跟随对话视口
-    spyPauseRef.current = false;
   }
 
   /** 下载安装包（共享实现见 lib/apk.ts）：下载期间按钮显示进度并禁用 */
@@ -211,8 +181,7 @@ export default function ChatView({
         el.scrollTop = el.scrollHeight;
       }
       setActiveRound(null);
-      setExpandedRounds(new Set());
-      spyPauseRef.current = false;
+      setHoverKey(null);
       updateActiveRound();
     }
     return () => {
@@ -235,20 +204,6 @@ export default function ChatView({
       });
     }
   }, [conv?.messages, store.isStreaming]);
-
-  // 面板展开期间：当前轮次变化时把对应条目滚动居中（高亮点持续保持在面板可视区中央）
-  useEffect(() => {
-    if (!jumpOpen || !activeRound) return;
-    const panel = panelRef.current;
-    const item = panel?.querySelector<HTMLElement>(`[data-jump-item="${activeRound}"]`);
-    if (!panel || !item) return;
-    panelAutoScrollRef.current = true;
-    panel.scrollTop = item.offsetTop - (panel.clientHeight - item.offsetHeight) / 2;
-    // 安全兜底：若 scrollTop 未实际变化不会产生 scroll 事件，超时后复位标记
-    window.setTimeout(() => {
-      panelAutoScrollRef.current = false;
-    }, 300);
-  }, [jumpOpen, activeRound]);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -359,128 +314,72 @@ export default function ChatView({
         </div>
       </div>
 
-      {/* 悬浮导航按钮：对话跳转（用户提问列表定位）+ 回到底部（离开底部时显示） */}
-      {msgs.length > 0 && (
-        <div className="pointer-events-none absolute bottom-4 right-3 z-20 flex flex-col items-end gap-2 md:right-6">
-          {/* 点击遮罩：收起跳转列表时顺带吞掉外部点击 */}
-          {jumpOpen && (
-            <div
-              className="pointer-events-auto fixed inset-0 z-0"
-              onClick={() => setJumpOpen(false)}
-            />
-          )}
-          {jumpOpen && (
-            <div
-              ref={panelRef}
-              onScroll={() => {
-                // 用户手动滚动面板 → 暂停 scroll-spy 跟随；程序化居中滚动不触发暂停
-                if (!panelAutoScrollRef.current) spyPauseRef.current = true;
-              }}
-              className="pointer-events-auto relative z-10 max-h-80 w-72 overflow-y-auto rounded-2xl border border-blue-100 bg-white/95 p-1.5 shadow-lg backdrop-blur dark:border-slate-600 dark:bg-slate-800/95"
-            >
-              {rounds.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-slate-400">暂无提问</p>
-              ) : (
-                rounds.map((r, i) => {
-                  const active = activeRound === r.userId;
-                  const expanded = expandedRounds.has(r.userId);
-                  return (
-                    <div key={r.userId} className="mb-0.5 last:mb-0">
-                      <div
-                        className={`flex items-center rounded-xl transition-colors ${
-                          active ? 'bg-blue-100/80 dark:bg-blue-500/20' : 'hover:bg-blue-50 dark:hover:bg-blue-500/10'
-                        }`}
-                      >
-                        {/* 轮次行右侧箭头：展开/收起该轮步次明细 */}
-                        <button
-                          type="button"
-                          onClick={() => toggleRound(r.userId)}
-                          title={expanded ? '收起本轮步次' : '展开本轮步次'}
-                          aria-label={expanded ? '收起本轮步次' : '展开本轮步次'}
-                          className="flex size-7 shrink-0 items-center justify-center text-slate-400 transition-colors hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400"
-                        >
-                          <i
-                            className={`fa-solid fa-chevron-right text-[9px] transition-transform duration-200 ${
-                              expanded ? 'rotate-90' : ''
-                            }`}
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          data-jump-item={r.userId}
-                          onClick={() => jumpToMessage(r.userId)}
-                          title={r.question}
-                          className={`flex min-w-0 flex-1 items-center gap-2 py-2 pr-2.5 text-left text-[13px] transition-colors ${
-                            active
-                              ? 'font-medium text-blue-700 dark:text-blue-300'
-                              : 'text-slate-600 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-300'
-                          }`}
-                        >
-                          <span
-                            className={`shrink-0 rounded-md px-1.5 text-[11px] font-medium ${
-                              active
-                                ? 'bg-blue-500 text-white dark:bg-blue-400 dark:text-slate-900'
-                                : 'bg-blue-50 text-blue-500 dark:bg-blue-500/15 dark:text-blue-300'
-                            }`}
-                          >
-                            {i + 1}
-                          </span>
-                          <span className="truncate">{r.question}</span>
-                        </button>
-                      </div>
-                      {/* 步次明细：该轮的用户提问与助手回复，点击直达对应消息 */}
-                      {expanded && (
-                        <div className="ml-3.5 mt-0.5 space-y-0.5 border-l border-blue-100 pl-2 dark:border-slate-700">
-                          {r.steps.map((s) => (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => jumpToMessage(s.id)}
-                              title={s.label}
-                              className="flex w-full min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[12px] text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"
-                            >
-                              <i
-                                className={`fa-solid shrink-0 text-[9px] ${
-                                  s.isUser ? 'text-blue-400 fa-user' : 'text-slate-400 fa-comment-dots dark:text-slate-500'
-                                }`}
-                              />
-                              <span className="truncate">{s.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={toggleJump}
-            title="对话跳转"
-            aria-label="对话跳转"
-            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-blue-100 bg-white/90 px-3.5 py-2 text-[13px] text-slate-600 shadow-md backdrop-blur transition-colors hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-700"
-          >
-            <i className="fa-solid fa-list-ul text-xs" />
-            对话跳转
-          </button>
-          {!atBottom && (
-            <button
-              type="button"
-              onClick={scrollToBottom}
-              title="回到底部"
-              aria-label="回到底部"
-              className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-blue-100 bg-white/90 px-3.5 py-2 text-[13px] text-slate-600 shadow-md backdrop-blur transition-colors hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              {isStreamingLast && (
-                <span className="size-1.5 animate-bounce rounded-full bg-blue-400" />
-              )}
-              <i className="fa-solid fa-arrow-down text-xs" />
-              回到底部
-            </button>
-          )}
+      {/* 钢琴键式轮次导航：右侧竖条，每键锚定一条用户提问；
+          悬停键变长变色、上下相邻键阶梯展开，并弹出「提问+回复」预览气泡；
+          非悬停时当前键仅随滚动变色（长度不变）；点击平滑跳转并高亮目标；
+          真实用户提问不足 2 条时不显示（设计如此） */}
+      {rounds.length >= 2 && (
+        <div className="pointer-events-none absolute right-2 top-1/2 z-20 flex max-h-[70vh] -translate-y-1/2 flex-col items-end justify-center gap-1.5 md:right-4">
+          {rounds.map((r, i) => {
+            const active = activeRound === r.userId;
+            const d = hoveredIdx === null ? null : Math.abs(hoveredIdx - i);
+            const sizeClass =
+              d === 0
+                ? 'w-9 bg-blue-500'
+                : d === 1
+                  ? 'w-7 bg-blue-400'
+                  : d === 2
+                    ? 'w-5 bg-blue-300 dark:bg-blue-400/60'
+                    : active
+                      ? 'w-4 bg-blue-500'
+                      : 'w-4 bg-blue-200 dark:bg-slate-600';
+            const reply = r.steps.filter((s) => !s.isUser).pop();
+            return (
+              <div
+                key={r.userId}
+                className="pointer-events-auto relative flex justify-end"
+                onMouseEnter={() => setHoverKey(r.userId)}
+                onMouseLeave={() => setHoverKey(null)}
+              >
+                {d === 0 && (
+                  <div className="pointer-events-none absolute right-full top-1/2 z-10 mr-3 w-60 -translate-y-1/2 rounded-xl border border-blue-100 bg-white/95 p-2.5 shadow-lg backdrop-blur dark:border-slate-600 dark:bg-slate-800/95">
+                    <p className="mb-1 flex gap-1.5 text-[12px] leading-snug text-slate-700 dark:text-slate-200">
+                      <i className="fa-solid fa-user mt-1 shrink-0 text-[9px] text-blue-400" />
+                      <span className="line-clamp-2 break-words">{r.question}</span>
+                    </p>
+                    <p className="flex gap-1.5 text-[12px] leading-snug text-slate-500 dark:text-slate-400">
+                      <i className="fa-solid fa-comment-dots mt-1 shrink-0 text-[9px] text-slate-400" />
+                      <span className="line-clamp-2 break-words">{reply ? reply.label : '（暂无回复）'}</span>
+                    </p>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  aria-label={`跳转到第 ${i + 1} 轮`}
+                  title={`第 ${i + 1} 轮`}
+                  onClick={() => jumpToMessage(r.userId)}
+                  className={`h-1.5 rounded-full transition-all duration-150 ${sizeClass}`}
+                />
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {/* 回到底部：圆形纯图标按钮，离开底部时显示；流式输出中右上角跳动圆点提示 */}
+      {!atBottom && msgs.length > 0 && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          title="回到底部"
+          aria-label="回到底部"
+          className="absolute bottom-4 right-3 z-20 flex size-10 items-center justify-center rounded-full border border-blue-100 bg-white/90 text-slate-600 shadow-md backdrop-blur transition-colors hover:bg-blue-50 hover:text-blue-600 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-700 md:right-6"
+        >
+          {isStreamingLast && (
+            <span className="absolute -right-0.5 -top-0.5 size-2 animate-bounce rounded-full bg-blue-400" />
+          )}
+          <i className="fa-solid fa-arrow-down text-sm" />
+        </button>
       )}
       </div>
 
