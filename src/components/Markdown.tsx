@@ -34,9 +34,12 @@ export interface MarkdownProps {
   text: string;
   isStreaming?: boolean;
   className?: string;
+  /** 正文文字颜色类（思考过程等场景可覆盖默认的灰蓝正文色） */
+  textClass?: string;
 }
 
-export default function Markdown({ text, isStreaming = false, className }: MarkdownProps) {
+export default function Markdown({ text, isStreaming = false, className, textClass }: MarkdownProps) {
+  const bodyColor = textClass ?? 'text-slate-600 dark:text-slate-300';
   const parserRef = useRef<ReturnType<typeof createMarkdownParser> | null>(null);
   const prevLenRef = useRef(0);
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -107,7 +110,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
           case 'paragraph':
             // 去掉 content 末尾的换行
             return (
-              <p key={block.id} className={`${parClasses.paragraph} leading-relaxed text-slate-600 dark:text-slate-300`}>
+              <p key={block.id} className={`${parClasses.paragraph} leading-relaxed ${bodyColor}`}>
                 <Inline text={block.content.replace(/\n$/, '')} />
                 {isLast && showCaret && <span className="streaming-caret" />}
               </p>
@@ -120,7 +123,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <ul
                 key={block.id}
-                className={`${parClasses.list} list-disc space-y-1.5 pl-6 leading-relaxed text-slate-600 marker:text-blue-400 dark:text-slate-300`}
+                className={`${parClasses.list} list-disc space-y-1.5 pl-6 leading-relaxed marker:text-blue-400 ${bodyColor}`}
               >
                 {items.map((item, i) => (
                   <li key={i}>
@@ -143,7 +146,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
             return (
               <blockquote
                 key={block.id}
-                className={`${parClasses.quote} rounded-r-lg border-l-4 border-blue-400 bg-blue-50/60 px-4 py-2 leading-relaxed text-slate-600 dark:border-blue-500/70 dark:bg-blue-500/10 dark:text-slate-300`}
+                className={`${parClasses.quote} rounded-r-lg border-l-4 border-blue-400 bg-blue-50/60 px-4 py-2 leading-relaxed dark:border-blue-500/70 dark:bg-blue-500/10 ${bodyColor}`}
               >
                 {lines.map((line, i) => (
                   <div key={i}>
@@ -180,7 +183,7 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
                           key={i}
                           className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200"
                         >
-                          {cell}
+                          <Inline text={cell} />
                         </th>
                       ))}
                     </tr>
@@ -192,8 +195,8 @@ export default function Markdown({ text, isStreaming = false, className }: Markd
                         className="border-t border-blue-100 odd:bg-white even:bg-slate-50/60 hover:bg-blue-50/50 dark:border-slate-700 dark:odd:bg-slate-800 dark:even:bg-slate-800/60 dark:hover:bg-blue-500/10"
                       >
                         {row.map((cell, ci) => (
-                          <td key={ci} className="px-3 py-1.5 text-slate-600 dark:text-slate-300">
-                            {cell}
+                          <td key={ci} className={`px-3 py-1.5 ${bodyColor}`}>
+                            <Inline text={cell} />
                           </td>
                         ))}
                       </tr>

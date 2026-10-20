@@ -73,10 +73,14 @@ export function ThinkingBlock({
       {expanded && (
         <div
           ref={scrollRef}
-          className="max-h-64 overflow-y-auto overscroll-contain border-t border-blue-100/60 px-3 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words text-slate-500 dark:border-slate-700/60 dark:text-white/85"
+          className="max-h-64 overflow-y-auto overscroll-contain border-t border-blue-100/60 px-3 py-2 text-[12.5px] break-words dark:border-slate-700/60"
         >
-          {reasoning}
-          {thinking && <span className="streaming-caret" aria-hidden="true" />}
+          {/* 思考过程同样走 Markdown 渲染，保证行内代码/加粗/列表等样式不缺漏 */}
+          <Markdown
+            text={reasoning}
+            isStreaming={thinking}
+            textClass="text-slate-500 dark:text-white/85"
+          />
         </div>
       )}
     </div>

@@ -97,11 +97,19 @@ function ConversationItem({
   }
 
   return (
-    <div
+    <a
       key={c.id}
-      onClick={onSelect}
+      // 覆盖整行的真锚点：原生支持右键"复制链接/在新标签页打开"与中键、Ctrl/Cmd+点击开新标签；
+      // 左键普通点击被拦截、只做应用内切换（深链格式与 useChatStore 的 #/session/<id> 一致）
+      href={`#/session/${c.id}`}
+      onClick={(e) => {
+        if (editing) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; // 修饰键/中键：交给浏览器开新标签
+        e.preventDefault();
+        onSelect();
+      }}
       onDoubleClick={startEdit}
-      className={`group flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors ${
+      className={`group flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors select-none ${
         active
           ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-400'
           : 'text-slate-600 hover:bg-blue-50 dark:text-slate-300 dark:hover:bg-blue-500/10'
@@ -130,7 +138,11 @@ function ConversationItem({
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={onKeyDown}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            // 锚点内的交互控件：阻止冒泡同时阻止默认，避免触发 <a> 的 hash 跳转
+            e.stopPropagation();
+            e.preventDefault();
+          }}
           className="min-w-0 flex-1 rounded-lg border border-blue-300 bg-white px-2 py-0.5 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-blue-500/40"
           aria-label="会话名称"
         />
@@ -142,6 +154,7 @@ function ConversationItem({
           <i
             onClick={(e) => {
               e.stopPropagation();
+              e.preventDefault();
               startEdit();
             }}
             title="重命名"
@@ -150,14 +163,15 @@ function ConversationItem({
           <i
             onClick={(e) => {
               e.stopPropagation();
+              e.preventDefault();
               onDelete();
             }}
             title="删除"
-            className="fa-solid fa-trash cursor-pointer text-slate-300 transition-colors hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
+            className="fa-solid fa-trash cursor-pointer text-slate-300 transition-colors hover:text-red-500 dark:text-slate-500 dark:hover:text-red-500"
           />
         </>
       )}
-    </div>
+    </a>
   );
 }
 

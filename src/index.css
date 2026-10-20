@@ -89,6 +89,22 @@ body {
   animation: caret-blink 0.8s infinite;
 }
 
+/* 对话跳转命中消息的短暂高亮：品牌蓝描边环，1.2s 后淡出（不修改 React 渲染的 DOM 结构，仅加类） */
+.nav-jump-highlight {
+  border-radius: 1rem;
+  animation: nav-jump-ring 1.2s ease-out;
+}
+
+@keyframes nav-jump-ring {
+  0%,
+  55% {
+    box-shadow: 0 0 0 2px rgb(59 130 246 / 0.7);
+  }
+  100% {
+    box-shadow: 0 0 0 2px rgb(59 130 246 / 0);
+  }
+}
+
 /* 代码高亮文本强制使用深色主题文字色库 */
 .code-block pre .shiki,
 .code-block pre code {
