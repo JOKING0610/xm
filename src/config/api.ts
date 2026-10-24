@@ -1,9 +1,12 @@
 // 内置模型配置
 // 密钥按用户明示需求硬编码于此（仅用于可变 API，勿外泄）。
 // 实测：agnes-ai.cn / apihub.agnes-ai.com 支持浏览器 CORS 直连；
-//       yunzhiapi.cn 无 CORS 放行（OPTIONS 预检 404、POST 无 ACAO 头），浏览器直连会被拦截，
-//       故 gemini 系走相对路径 /yunzhi-api（由 vite.config.ts 的 dev 代理转发到
-//       https://yunzhiapi.cn）。生产静态部署需自建反代才能使用 gemini 系模型。
+//       yunzhiapi.cn 已于 2026-10 复测开放 CORS（OPTIONS 预检 204、POST/流式均带
+//       Access-Control-Allow-Origin: *），浏览器可直连 https://yunzhiapi.cn/v1。
+//       旧版走相对路径 /yunzhi-api 依赖 vite dev 代理，生产静态部署（GitHub Pages）
+//       无此代理 → nginx 对不存在的静态路径 POST 返回 405 Not Allowed，已废弃。
+//       注：跨域响应默认只暴露 safelist 头，yunzhiapi 未设 Access-Control-Expose-Headers，
+//       故 gemini 系读不到 X-Resume-Token，断点续传对其降级为"断开即重新生成"。
 import type { ProviderId, ProviderMeta } from '../types';
 
 /** 内置模型列表（每个条目 = 一个可切换模型） */
@@ -22,7 +25,7 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     id: 'gemini-3.8',
     label: 'Gemini-3.8-Flash',
-    baseURL: '/yunzhi-api/v1',
+    baseURL: 'https://yunzhiapi.cn/v1',
     model: 'Gemini-3.8-Flash',
     apiKey: 'sk-nLJBba2R2xvTUYe7uGiE7xSprQSMFCmvcjwTxzVyfoEaKJ2e',
     moderationSupported: false,
@@ -33,7 +36,7 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     id: 'gemini-3.7',
     label: 'Gemini-3.7-Flash',
-    baseURL: '/yunzhi-api/v1',
+    baseURL: 'https://yunzhiapi.cn/v1',
     model: 'Gemini-3.7-Flash',
     apiKey: 'sk-nLJBba2R2xvTUYe7uGiE7xSprQSMFCmvcjwTxzVyfoEaKJ2e',
     moderationSupported: false,
@@ -44,7 +47,7 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     id: 'gemini-3.6',
     label: 'Gemini-3.6-Flash',
-    baseURL: '/yunzhi-api/v1',
+    baseURL: 'https://yunzhiapi.cn/v1',
     model: 'Gemini-3.6-Flash',
     apiKey: 'sk-nLJBba2R2xvTUYe7uGiE7xSprQSMFCmvcjwTxzVyfoEaKJ2e',
     moderationSupported: false,
