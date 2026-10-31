@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react';
 import type { Attachment, ProviderId, ThinkingLevel } from '../types';
 import { PROVIDERS, getProvider } from '../config/api';
@@ -455,12 +455,18 @@ export default function InputBar() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // 发送后清空输入框并重置高度
+  // 文本变化（含发送后清空）在 DOM 提交后重算高度：
+  // 发送清空走 React 状态，若在 resetInput 里同步量高，DOM 仍是旧内容，
+  // 量到旧 scrollHeight 导致高度不回落，故统一等提交后再量
+  useLayoutEffect(() => {
+    if (textareaRef.current) autoResize(textareaRef.current);
+  }, [text]);
+
+  // 发送后清空输入框（高度由上方 useLayoutEffect 在文本提交后统一重算）
   function resetInput() {
     setText('');
     setAttachments([]);
     setErrorMsg(null);
-    if (textareaRef.current) autoResize(textareaRef.current);
   }
 
   // 无会话场景：新建会话后需等 React 状态更新（activeConversation 就绪）再发送

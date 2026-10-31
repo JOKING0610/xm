@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../hooks/useChatStore';
-import { downloadApk } from '../lib/apk';
 import Message from './Message';
 import InputBar from './InputBar';
 
@@ -69,8 +68,6 @@ export default function ChatView({
   const spyTimerRef = useRef<number | null>(null);
   // 钢琴键悬停的轮（用户消息 id）：控制阶梯展开与预览气泡
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  // 安装包下载中状态：下载期间按钮显示进度并禁用，避免重复触发
-  const [downloading, setDownloading] = useState(false);
   const conv = store.activeConversation;
   // 防御性取值：历史/异常数据可能缺 messages 字段
   const msgs = conv?.messages ?? [];
@@ -153,17 +150,6 @@ export default function ChatView({
     window.setTimeout(() => target.classList.remove('nav-jump-highlight'), 1200);
   }
 
-  /** 下载安装包（共享实现见 lib/apk.ts）：下载期间按钮显示进度并禁用 */
-  async function handleDownloadApk(): Promise<void> {
-    if (downloading) return;
-    setDownloading(true);
-    try {
-      await downloadApk();
-    } finally {
-      setDownloading(false);
-    }
-  }
-
   // 切换会话：cleanup 记录旧会话滚动位置，setup 恢复新会话位置
   // （上次离开时不在底部 → 回到原位；在底部附近 → 直接定位底部）
   const convId = conv?.id ?? null;
@@ -230,22 +216,18 @@ export default function ChatView({
             </h1>
           )}
         </div>
-        {/* 下载 App：按钮触发取回安装包并以 .apk 文件名保存（详见 APK_URL 注释） */}
-        <button
-          type="button"
-          onClick={() => void handleDownloadApk()}
-          disabled={downloading}
+        {/* 下载 App：跳转到官网下载页 */}
+        <a
+          href="https://www.joking0610.top/"
+          target="_blank"
+          rel="noopener noreferrer"
           title="下载 App"
           aria-label="下载 App"
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
         >
-          <i
-            className={`fa-solid text-xs ${
-              downloading ? 'fa-circle-notch fa-spin' : 'fa-download'
-            }`}
-          />
-          {downloading ? '下载中…' : '下载 App'}
-        </button>
+          <i className="fa-solid fa-download text-xs" />
+          下载 App
+        </a>
       </header>
 
       {/* 消息区（relative 容器承载悬浮的"回到底部 / 对话跳转"按钮） */}

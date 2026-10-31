@@ -45,17 +45,6 @@ export const PROVIDERS: ProviderMeta[] = [
     maxOutputTokens: 65_536,
   },
   {
-    id: 'gemini-3.6',
-    label: 'Gemini-3.6-Flash',
-    baseURL: 'https://yunzhiapi.cn/v1',
-    model: 'Gemini-3.6-Flash',
-    apiKey: 'sk-nLJBba2R2xvTUYe7uGiE7xSprQSMFCmvcjwTxzVyfoEaKJ2e',
-    moderationSupported: false,
-    supportsThinking: false,
-    contextTokens: 1_048_576,
-    maxOutputTokens: 65_536,
-  },
-  {
     id: 'agnes-hub',
     label: 'Agnes 3.0 Flash',
     baseURL: 'https://apihub.agnes-ai.com/v1',

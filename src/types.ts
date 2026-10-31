@@ -4,7 +4,6 @@
 export type ProviderId =
   | 'gemini-3.8'
   | 'gemini-3.7'
-  | 'gemini-3.6'
   | 'agnes-cn'
   | 'agnes-hub';
 
