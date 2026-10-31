@@ -178,7 +178,7 @@ function Message({ message, isStreaming, onRetry }: MessageProps) {
   return (
     <div className="flex justify-start gap-3">
       <img
-        src="./avatar.jpg"
+        src="./icon.png"
         alt="星梦"
         className="size-8 shrink-0 rounded-full object-cover"
       />

@@ -209,7 +209,7 @@ export default function Sidebar({
         <div className="flex items-center justify-between px-4 py-4">
           <div className="flex items-center gap-2.5">
             <img
-              src="./avatar.jpg"
+              src="./icon.png"
               alt="星梦"
               className="size-9 rounded-xl object-cover"
             />
