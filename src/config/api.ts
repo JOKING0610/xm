@@ -25,7 +25,7 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     id: 'gemini-3.8',
     label: 'Gemini-3.8-Flash',
-    baseURL: 'https://yunzhiapi.cn/v1',
+    baseURL: 'https://api.yunzhiapi.cn/v1',
     model: 'Gemini-3.8-Flash',
     apiKey: 'sk-nLJBba2R2xvTUYe7uGiE7xSprQSMFCmvcjwTxzVyfoEaKJ2e',
     moderationSupported: false,
@@ -36,7 +36,7 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     id: 'gemini-3.7',
     label: 'Gemini-3.7-Flash',
-    baseURL: 'https://yunzhiapi.cn/v1',
+    baseURL: 'https://api.yunzhiapi.cn/v1',
     model: 'Gemini-3.7-Flash',
     apiKey: 'sk-nLJBba2R2xvTUYe7uGiE7xSprQSMFCmvcjwTxzVyfoEaKJ2e',
     moderationSupported: false,
